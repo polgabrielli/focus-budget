@@ -69,13 +69,36 @@
 
 ---
 
-## 3. Estado Actual del Proyecto y Próximos Pasos
+## 3. Estado Actual del Proyecto: MVP Completo y Verificado ✅
 
-* **Infraestructura creada:**
-  * Carpeta física en Obsidian: `D:\Proyectos\master-vault\02_Projects\focus-budget\docs\`
-  * Junction NTFS en proyecto de código: `D:\Proyectos\focus-budget\docs` apuntando a la de Obsidian.
-  * Carpeta de código: `D:\Proyectos\focus-budget\code\`
-* **Próximo Paso Inmediato para el Nuevo Chat:**
-  * Inicializar el proyecto React + Vite + TypeScript en `D:\Proyectos\focus-budget\code\`.
-  * Instalar Tailwind CSS y Dexie.js.
-  * Implementar el esquema de base de datos local y los componentes principales (Dial Monefy + Teclado decimal + Selector de Fecha).
+* **Fase 1 (Completada):** Scaffold React + Vite + Tailwind, Dexie.js (IndexedDB) con esquema UUID + soft delete, Dial Donut estilo Monefy (SVG dinámico), 8 categorías de gasto + 4 de ingreso, selector rápido `[Hoy|Ayer|Fecha]`, botón flotante Deshacer (5 seg) y multi-moneda ARS/USD con cotización oficial en caché offline.
+* **Fase 2 (Completada):** Módulo de Préstamos y Deudas ("Debo" vs "Me deben"), barra de Libertad Financiera positiva, amortización en 1 toque vinculada a transacciones diarias, navegación inferior con badges.
+* **Fase 3 (Completada):** Radar de Vencimientos en carrusel semáforo horizontal, pago y avance recurrente en 1 toque, sincronización universal con Google Calendar y generador de archivos `.ics` con 4 alarmas escalonadas (-7d, -3d, -1d, 0d).
+* **Fase 4 (Completada):** Modal "Reportes & IA" con filtros por mes y reporte dedicado "Hija", exportación CSV (UTF-8 BOM) y Excel nativo (.xlsx), generador de prompts amigables para TDAH en LM Studio / Ollama, y servidor de backup local Wi-Fi en Python (`code/server/sync_server.py`).
+* **Calidad y Cobertura de Tests:** 64 tests unitarios y de integración pasando al 100% (14 suites de test con Vitest + Testing Library + fake-indexeddb). Build de producción verificado (`npm run build`).
+
+---
+
+## 4. Guía de Ejecución Rápida
+
+1. **Iniciar la aplicación PWA:**
+   ```bash
+   cd code
+   npm run dev
+   ```
+   * En PC: Abrir `http://localhost:5173`
+   * En iPhone 11: Abrir `http://<IP_DE_TU_PC>:5173` en Safari y tocar **"Compartir" -> "Agregar a pantalla de inicio"** para usarla como app nativa 100% offline.
+
+2. **Ejecutar Tests:**
+   ```bash
+   cd code
+   npm test
+   ```
+
+3. **Iniciar Servidor de Backup Wi-Fi en PC (Opcional):**
+   * Doble clic en `code/server/run_server.bat` o ejecutar:
+     ```bash
+     python code/server/sync_server.py
+     ```
+   * En la app (iPhone o PC), ir al ícono 📊 en el encabezado -> pestaña **Wi-Fi Sync** -> ingresar la IP de la PC y presionar **"Enviar Copia a mi PC"**. Guarda el backup JSON en `code/server/backups/`.
+
