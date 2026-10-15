@@ -8,6 +8,7 @@ import {
   type ExchangeRateCache,
   type Commitment,
   type CommitmentType,
+  type Reminder,
 } from '../types';
 import { fetchExchangeRate } from '../services/currencyService';
 
@@ -39,6 +40,8 @@ interface BudgetContextType {
   activeCategories: Category[];
   commitments: Commitment[];
   commitmentsSummary: CommitmentsSummary;
+  reminders: Reminder[];
+  activeReminders: Reminder[];
   lastAddedTransaction: Transaction | null;
   isUndoVisible: boolean;
   addTransaction: (params: {
@@ -72,6 +75,17 @@ interface BudgetContextType {
     date?: string;
   }) => Promise<void>;
   deleteCommitment: (id: string) => Promise<void>;
+  addReminder: (params: {
+    title: string;
+    amount: number;
+    currency: CurrencyCode;
+    dueDate: string;
+    categoryId: string;
+    isRecurring: boolean;
+    recurrenceDay?: number | null;
+  }) => Promise<Reminder>;
+  payReminder: (reminderId: string, customAmount?: number, paymentDate?: string) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
   currentTotals: {
     income: number;
     expense: number;
@@ -100,6 +114,26 @@ function getYesterdayString(): string {
   return `${year}-${month}-${day}`;
 }
 
+function getNextMonthlyDueDate(currentDueDate: string, recurrenceDay?: number | null): string {
+  const [yearStr, monthStr, dayStr] = currentDueDate.split('-');
+  let year = parseInt(yearStr, 10);
+  let month = parseInt(monthStr, 10);
+  const day = recurrenceDay || parseInt(dayStr, 10);
+
+  month += 1;
+  if (month > 12) {
+    month = 1;
+    year += 1;
+  }
+
+  const maxDays = new Date(year, month, 0).getDate();
+  const clampedDay = Math.min(day, maxDays);
+
+  const formattedMonth = String(month).padStart(2, '0');
+  const formattedDay = String(clampedDay).padStart(2, '0');
+  return `${year}-${formattedMonth}-${formattedDay}`;
+}
+
 export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeView, setActiveView] = useState<AppView>('dial');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
@@ -111,6 +145,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [allTransactionsForMonth, setAllTransactionsForMonth] = useState<Transaction[]>([]);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   
   // Undo mechanism (5-second window)
   const [lastAddedTransaction, setLastAddedTransaction] = useState<Transaction | null>(null);
@@ -131,7 +166,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  // Fetch transactions and commitments
+  // Fetch transactions, commitments, and reminders
   const refreshData = useCallback(async () => {
     try {
       const currentMonth = selectedDate.substring(0, 7); // 'YYYY-MM'
@@ -152,6 +187,12 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .filter(c => !c.deletedAt)
         .toArray();
       setCommitments(commItems);
+
+      // Get all non-deleted reminders
+      const remItems = await db.reminders
+        .filter(r => !r.deletedAt)
+        .toArray();
+      setReminders(remItems);
     } catch (err) {
       console.error('Error refreshing data:', err);
     }
@@ -337,9 +378,6 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updatedAt: nowIso,
     });
 
-    // Record linked transaction
-    // Debt payment = Expense (-)
-    // Credit collection = Income (+)
     const txType: TransactionType = commitment.type === 'debt' ? 'expense' : 'income';
     const fallbackCategory = txType === 'expense' ? 'cat-hogar' : 'cat-otros-ingresos';
     const txCategory = categoryId || fallbackCategory;
@@ -374,6 +412,97 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     await refreshData();
   };
+
+  // Add Reminder (Radar de Vencimientos)
+  const addReminder = async (params: {
+    title: string;
+    amount: number;
+    currency: CurrencyCode;
+    dueDate: string;
+    categoryId: string;
+    isRecurring: boolean;
+    recurrenceDay?: number | null;
+  }): Promise<Reminder> => {
+    const nowIso = new Date().toISOString();
+    const newReminder: Reminder = {
+      id: crypto.randomUUID(),
+      title: params.title.trim(),
+      amount: params.amount,
+      currency: params.currency,
+      dueDate: params.dueDate,
+      categoryId: params.categoryId,
+      isRecurring: params.isRecurring,
+      recurrenceDay: params.isRecurring ? (params.recurrenceDay || parseInt(params.dueDate.split('-')[2], 10)) : null,
+      status: 'pending',
+      paidDate: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      deletedAt: null,
+    };
+
+    await db.reminders.add(newReminder);
+    await refreshData();
+    return newReminder;
+  };
+
+  // Pay Reminder (1-Touch Service Payment)
+  const payReminder = async (
+    reminderId: string,
+    customAmount?: number,
+    paymentDate?: string
+  ) => {
+    const reminder = await db.reminders.get(reminderId);
+    if (!reminder) return;
+
+    const nowIso = new Date().toISOString();
+    const amountToPay = customAmount !== undefined ? customAmount : reminder.amount;
+
+    // Record expense transaction
+    await addTransaction({
+      amount: amountToPay,
+      categoryId: reminder.categoryId,
+      subTag: reminder.title,
+      note: `Pago de servicio: ${reminder.title}`,
+      type: 'expense',
+      currency: reminder.currency,
+      date: paymentDate || selectedDate,
+    });
+
+    if (reminder.isRecurring) {
+      const nextDueDate = getNextMonthlyDueDate(reminder.dueDate, reminder.recurrenceDay);
+      await db.reminders.update(reminderId, {
+        dueDate: nextDueDate,
+        paidDate: nowIso,
+        updatedAt: nowIso,
+        status: 'pending', // rolls over to next month's radar!
+      });
+    } else {
+      await db.reminders.update(reminderId, {
+        status: 'paid',
+        paidDate: nowIso,
+        updatedAt: nowIso,
+      });
+    }
+
+    await refreshData();
+  };
+
+  // Delete Reminder (Soft-delete)
+  const deleteReminder = async (id: string) => {
+    const nowIso = new Date().toISOString();
+    await db.reminders.update(id, {
+      deletedAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await refreshData();
+  };
+
+  // Active sorted reminders for the Radar
+  const activeReminders = useMemo(() => {
+    return reminders
+      .filter(r => r.status === 'pending' && !r.deletedAt)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  }, [reminders]);
 
   // Filter categories by current transaction type (expense vs income)
   const activeCategories = useMemo(() => {
@@ -505,6 +634,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         activeCategories,
         commitments,
         commitmentsSummary,
+        reminders,
+        activeReminders,
         lastAddedTransaction,
         isUndoVisible,
         addTransaction,
@@ -514,6 +645,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addCommitment,
         payCommitment,
         deleteCommitment,
+        addReminder,
+        payReminder,
+        deleteReminder,
         currentTotals,
         categoryTotals,
         refreshData,

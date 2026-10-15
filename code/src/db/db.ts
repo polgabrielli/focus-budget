@@ -147,7 +147,7 @@ export class FocusBudgetDatabase extends Dexie {
       transactions: 'id, date, type, categoryId, commitmentId, deletedAt, createdAt',
       categories: 'id, type, sortOrder',
       commitments: 'id, type, isCompleted, deletedAt',
-      reminders: 'id, dueDate, status, deletedAt',
+      reminders: 'id, title, dueDate, status, deletedAt',
       exchangeRates: 'id, fetchedAt',
     });
   }

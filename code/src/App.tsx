@@ -6,6 +6,8 @@ import { CategoryGrid } from './components/Categories/CategoryGrid';
 import { NumericKeypad } from './components/Keypad/NumericKeypad';
 import { RecentTransactionsList } from './components/Transactions/RecentTransactionsList';
 import { CommitmentsView } from './components/Commitments/CommitmentsView';
+import { RemindersView } from './components/Radar/RemindersView';
+import { RadarWidget } from './components/Radar/RadarWidget';
 import { BottomNav } from './components/Navigation/BottomNav';
 import { UndoToast } from './components/Common/UndoToast';
 
@@ -23,6 +25,9 @@ const MainScreen: React.FC = () => {
       {/* View 1: Main Dial & 2-Touch Registration */}
       {activeView === 'dial' && (
         <div className="w-full flex flex-col items-center animate-fadeIn">
+          {/* Radar Widget (Top horizontal alerts for urgent bills) */}
+          <RadarWidget />
+
           {/* Monefy Interactive Dial */}
           <MonefyDial />
 
@@ -50,7 +55,14 @@ const MainScreen: React.FC = () => {
         </div>
       )}
 
-      {/* View 2: Préstamos y Deudas ("Compromisos") */}
+      {/* View 2: Radar de Vencimientos y Google Calendar */}
+      {activeView === 'reminders' && (
+        <div className="w-full mt-2 animate-fadeIn">
+          <RemindersView />
+        </div>
+      )}
+
+      {/* View 3: Préstamos y Deudas ("Compromisos") */}
       {activeView === 'commitments' && (
         <div className="w-full mt-2 animate-fadeIn">
           <CommitmentsView />
