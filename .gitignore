@@ -1,0 +1,5 @@
+# Dependencies and build
+code/node_modules/
+code/dist/
+.DS_Store
+*.log
