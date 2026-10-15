@@ -144,7 +144,7 @@ export class FocusBudgetDatabase extends Dexie {
   constructor() {
     super('FocusBudgetDB');
     this.version(1).stores({
-      transactions: 'id, date, type, categoryId, deletedAt, createdAt',
+      transactions: 'id, date, type, categoryId, commitmentId, deletedAt, createdAt',
       categories: 'id, type, sortOrder',
       commitments: 'id, type, isCompleted, deletedAt',
       reminders: 'id, dueDate, status, deletedAt',

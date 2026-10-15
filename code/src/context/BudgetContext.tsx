@@ -5,11 +5,26 @@ import {
   type Category, 
   type TransactionType, 
   type CurrencyCode, 
-  type ExchangeRateCache 
+  type ExchangeRateCache,
+  type Commitment,
+  type CommitmentType,
 } from '../types';
 import { fetchExchangeRate } from '../services/currencyService';
 
+export type AppView = 'dial' | 'commitments' | 'reminders';
+
+export interface CommitmentsSummary {
+  totalDebtRemaining: number;
+  totalDebtPaid: number;
+  totalDebtOriginal: number;
+  freedomPercentage: number;
+  totalCreditRemaining: number;
+  totalCreditCollected: number;
+}
+
 interface BudgetContextType {
+  activeView: AppView;
+  setActiveView: (view: AppView) => void;
   selectedDate: string; // YYYY-MM-DD
   datePreset: 'today' | 'yesterday' | 'custom';
   setDatePreset: (preset: 'today' | 'yesterday' | 'custom', customDate?: string) => void;
@@ -22,6 +37,8 @@ interface BudgetContextType {
   allTransactionsForMonth: Transaction[];
   categories: Category[];
   activeCategories: Category[];
+  commitments: Commitment[];
+  commitmentsSummary: CommitmentsSummary;
   lastAddedTransaction: Transaction | null;
   isUndoVisible: boolean;
   addTransaction: (params: {
@@ -31,10 +48,30 @@ interface BudgetContextType {
     note?: string;
     type?: TransactionType;
     currency?: CurrencyCode;
+    commitmentId?: string | null;
+    date?: string;
   }) => Promise<Transaction>;
   undoLastTransaction: () => Promise<void>;
   dismissUndo: () => void;
   deleteTransaction: (id: string) => Promise<void>;
+  addCommitment: (params: {
+    title: string;
+    counterpart: string;
+    type: CommitmentType;
+    totalAmount: number;
+    currency: CurrencyCode;
+    installmentsTotal?: number;
+    dueDate?: string | null;
+    notes?: string;
+  }) => Promise<Commitment>;
+  payCommitment: (params: {
+    commitmentId: string;
+    amount: number;
+    categoryId?: string;
+    note?: string;
+    date?: string;
+  }) => Promise<void>;
+  deleteCommitment: (id: string) => Promise<void>;
   currentTotals: {
     income: number;
     expense: number;
@@ -64,6 +101,7 @@ function getYesterdayString(): string {
 }
 
 export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [activeView, setActiveView] = useState<AppView>('dial');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   const [datePreset, setDatePresetState] = useState<'today' | 'yesterday' | 'custom'>('today');
   const [activeCurrency, setActiveCurrency] = useState<CurrencyCode>('ARS');
@@ -72,6 +110,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [allTransactionsForMonth, setAllTransactionsForMonth] = useState<Transaction[]>([]);
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
   
   // Undo mechanism (5-second window)
   const [lastAddedTransaction, setLastAddedTransaction] = useState<Transaction | null>(null);
@@ -92,7 +131,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  // Fetch transactions for selected date and current month
+  // Fetch transactions and commitments
   const refreshData = useCallback(async () => {
     try {
       const currentMonth = selectedDate.substring(0, 7); // 'YYYY-MM'
@@ -107,8 +146,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Get transactions for selected date
       const dateItems = monthItems.filter(t => t.date === selectedDate);
       setTransactions(dateItems);
+
+      // Get all non-deleted commitments
+      const commItems = await db.commitments
+        .filter(c => !c.deletedAt)
+        .toArray();
+      setCommitments(commItems);
     } catch (err) {
-      console.error('Error refreshing transactions:', err);
+      console.error('Error refreshing data:', err);
     }
   }, [selectedDate]);
 
@@ -140,6 +185,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     note,
     type,
     currency,
+    commitmentId,
+    date,
   }: {
     amount: number;
     categoryId: string;
@@ -147,6 +194,8 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     note?: string;
     type?: TransactionType;
     currency?: CurrencyCode;
+    commitmentId?: string | null;
+    date?: string;
   }): Promise<Transaction> => {
     const nowIso = new Date().toISOString();
     const rate = exchangeRate?.venta || 1400;
@@ -163,8 +212,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       subTag: subTag || null,
       currency: finalCurrency,
       exchangeRate: rate,
-      date: selectedDate,
+      date: date || selectedDate,
       note: note || '',
+      commitmentId: commitmentId || null,
       createdAt: nowIso,
       updatedAt: nowIso,
       deletedAt: null,
@@ -204,7 +254,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setLastAddedTransaction(null);
   };
 
-  // Delete Transaction (Soft-delete for future sync)
+  // Delete Transaction (Soft-delete)
   const deleteTransaction = async (id: string) => {
     const tx = await db.transactions.get(id);
     if (tx) {
@@ -216,13 +266,121 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  // Add Commitment
+  const addCommitment = async (params: {
+    title: string;
+    counterpart: string;
+    type: CommitmentType;
+    totalAmount: number;
+    currency: CurrencyCode;
+    installmentsTotal?: number;
+    dueDate?: string | null;
+    notes?: string;
+  }): Promise<Commitment> => {
+    const nowIso = new Date().toISOString();
+    const newCommitment: Commitment = {
+      id: crypto.randomUUID(),
+      title: params.title.trim(),
+      counterpart: params.counterpart.trim(),
+      type: params.type,
+      totalAmount: params.totalAmount,
+      paidAmount: 0,
+      installmentsTotal: params.installmentsTotal || undefined,
+      installmentsPaid: params.installmentsTotal ? 0 : undefined,
+      currency: params.currency,
+      dueDate: params.dueDate || null,
+      notes: params.notes || '',
+      isCompleted: false,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      deletedAt: null,
+    };
+
+    await db.commitments.add(newCommitment);
+    await refreshData();
+    return newCommitment;
+  };
+
+  // Pay Commitment (Amortization linked with Daily Transactions)
+  const payCommitment = async ({
+    commitmentId,
+    amount,
+    categoryId,
+    note,
+    date,
+  }: {
+    commitmentId: string;
+    amount: number;
+    categoryId?: string;
+    note?: string;
+    date?: string;
+  }) => {
+    const commitment = await db.commitments.get(commitmentId);
+    if (!commitment) return;
+
+    const newPaidAmount = commitment.paidAmount + amount;
+    const isCompleted = newPaidAmount >= commitment.totalAmount;
+    
+    let newInstallmentsPaid = commitment.installmentsPaid;
+    if (commitment.installmentsTotal) {
+      newInstallmentsPaid = Math.min(
+        commitment.installmentsTotal,
+        (commitment.installmentsPaid || 0) + 1
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    await db.commitments.update(commitmentId, {
+      paidAmount: newPaidAmount,
+      installmentsPaid: newInstallmentsPaid,
+      isCompleted,
+      updatedAt: nowIso,
+    });
+
+    // Record linked transaction
+    // Debt payment = Expense (-)
+    // Credit collection = Income (+)
+    const txType: TransactionType = commitment.type === 'debt' ? 'expense' : 'income';
+    const fallbackCategory = txType === 'expense' ? 'cat-hogar' : 'cat-otros-ingresos';
+    const txCategory = categoryId || fallbackCategory;
+
+    const installmentText = commitment.installmentsTotal 
+      ? `(Cuota ${newInstallmentsPaid}/${commitment.installmentsTotal})`
+      : '';
+    const defaultNote = commitment.type === 'debt'
+      ? `Pago cuota a ${commitment.counterpart} ${installmentText}`.trim()
+      : `Cobro cuota de ${commitment.counterpart} ${installmentText}`.trim();
+
+    await addTransaction({
+      amount,
+      categoryId: txCategory,
+      subTag: commitment.title,
+      note: note || defaultNote,
+      type: txType,
+      currency: commitment.currency,
+      commitmentId: commitment.id,
+      date: date || selectedDate,
+    });
+
+    await refreshData();
+  };
+
+  // Delete Commitment (Soft-delete)
+  const deleteCommitment = async (id: string) => {
+    const nowIso = new Date().toISOString();
+    await db.commitments.update(id, {
+      deletedAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await refreshData();
+  };
+
   // Filter categories by current transaction type (expense vs income)
   const activeCategories = useMemo(() => {
     return categories.filter(c => c.type === transactionType);
   }, [categories, transactionType]);
 
   // Calculate Totals for the current month
-  // Standardized in activeCurrency for consistent display
   const currentTotals = useMemo(() => {
     let income = 0;
     let expense = 0;
@@ -252,7 +410,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [allTransactionsForMonth, activeCurrency, exchangeRate]);
 
-  // Calculate category totals for the donut dial (expenses of the month)
+  // Calculate category totals for the donut dial
   const categoryTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     const rate = exchangeRate?.venta || 1400;
@@ -274,9 +432,65 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return totals;
   }, [allTransactionsForMonth, transactionType, activeCurrency, exchangeRate]);
 
+  // Calculate Commitments & Freedom Metrics
+  const commitmentsSummary = useMemo<CommitmentsSummary>(() => {
+    let totalDebtRemaining = 0;
+    let totalDebtPaid = 0;
+    let totalDebtOriginal = 0;
+    let totalCreditRemaining = 0;
+    let totalCreditCollected = 0;
+
+    const rate = exchangeRate?.venta || 1400;
+
+    commitments.forEach(c => {
+      let total = c.totalAmount;
+      let paid = c.paidAmount;
+
+      if (c.currency !== activeCurrency) {
+        if (activeCurrency === 'ARS' && c.currency === 'USD') {
+          total = total * rate;
+          paid = paid * rate;
+        } else if (activeCurrency === 'USD' && c.currency === 'ARS') {
+          total = rate > 0 ? total / rate : 0;
+          paid = rate > 0 ? paid / rate : 0;
+        }
+      }
+
+      const remaining = Math.max(0, total - paid);
+
+      if (c.type === 'debt') {
+        totalDebtOriginal += total;
+        totalDebtPaid += paid;
+        if (!c.isCompleted) {
+          totalDebtRemaining += remaining;
+        }
+      } else {
+        totalCreditCollected += paid;
+        if (!c.isCompleted) {
+          totalCreditRemaining += remaining;
+        }
+      }
+    });
+
+    const freedomPercentage = totalDebtOriginal > 0 
+      ? Math.min(100, (totalDebtPaid / totalDebtOriginal) * 100) 
+      : 100;
+
+    return {
+      totalDebtRemaining,
+      totalDebtPaid,
+      totalDebtOriginal,
+      freedomPercentage,
+      totalCreditRemaining,
+      totalCreditCollected,
+    };
+  }, [commitments, activeCurrency, exchangeRate]);
+
   return (
     <BudgetContext.Provider
       value={{
+        activeView,
+        setActiveView,
         selectedDate,
         datePreset,
         setDatePreset,
@@ -289,12 +503,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         allTransactionsForMonth,
         categories,
         activeCategories,
+        commitments,
+        commitmentsSummary,
         lastAddedTransaction,
         isUndoVisible,
         addTransaction,
         undoLastTransaction,
         dismissUndo,
         deleteTransaction,
+        addCommitment,
+        payCommitment,
+        deleteCommitment,
         currentTotals,
         categoryTotals,
         refreshData,

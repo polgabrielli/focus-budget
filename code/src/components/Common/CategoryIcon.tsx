@@ -12,6 +12,9 @@ import {
   Laptop,
   TrendingUp,
   Gift,
+  HandCoins,
+  CreditCard,
+  ArrowRightLeft,
   HelpCircle,
   type LucideProps
 } from 'lucide-react';
@@ -33,6 +36,9 @@ const iconMap: Record<string, React.FC<LucideProps>> = {
   Laptop,
   TrendingUp,
   Gift,
+  HandCoins,
+  CreditCard,
+  ArrowRightLeft,
 };
 
 export const CategoryIcon: React.FC<CategoryIconProps> = ({ name, ...props }) => {
