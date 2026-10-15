@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -7,5 +8,10 @@ export default defineConfig({
   server: {
     host: true, // Listen on all local IPs (essential for testing from iPhone 11 via local Wi-Fi)
     port: 5173,
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
   },
 });

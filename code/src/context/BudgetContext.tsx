@@ -29,6 +29,8 @@ interface BudgetContextType {
     categoryId: string;
     subTag?: string | null;
     note?: string;
+    type?: TransactionType;
+    currency?: CurrencyCode;
   }) => Promise<Transaction>;
   undoLastTransaction: () => Promise<void>;
   dismissUndo: () => void;
@@ -136,22 +138,30 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     categoryId,
     subTag,
     note,
+    type,
+    currency,
   }: {
     amount: number;
     categoryId: string;
     subTag?: string | null;
     note?: string;
+    type?: TransactionType;
+    currency?: CurrencyCode;
   }): Promise<Transaction> => {
     const nowIso = new Date().toISOString();
     const rate = exchangeRate?.venta || 1400;
 
+    const matchedCat = categories.find((c) => c.id === categoryId);
+    const finalType = type || matchedCat?.type || transactionType;
+    const finalCurrency = currency || activeCurrency;
+
     const newTx: Transaction = {
       id: crypto.randomUUID(),
       amount,
-      type: transactionType,
+      type: finalType,
       categoryId,
       subTag: subTag || null,
-      currency: activeCurrency,
+      currency: finalCurrency,
       exchangeRate: rate,
       date: selectedDate,
       note: note || '',
