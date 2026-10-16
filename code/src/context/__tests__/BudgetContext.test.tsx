@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { BudgetProvider, useBudget } from '../BudgetContext';
 import { db } from '../../db/db';
@@ -10,6 +10,7 @@ const wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 describe('BudgetContext & Calculations', () => {
   beforeEach(async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Offline in unit tests'));
     await db.transactions.clear();
     await db.categories.clear();
     await db.exchangeRates.clear();
