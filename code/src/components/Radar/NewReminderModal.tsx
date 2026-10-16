@@ -8,7 +8,7 @@ interface NewReminderModalProps {
 }
 
 export const NewReminderModal: React.FC<NewReminderModalProps> = ({ onClose }) => {
-  const { addReminder, categories, activeCurrency, selectedDate } = useBudget();
+  const { addReminder, categories, activeCurrency, selectedDate, exchangeRate } = useBudget();
 
   const expenseCategories = categories.filter((c) => c.type === 'expense');
 
@@ -18,6 +18,9 @@ export const NewReminderModal: React.FC<NewReminderModalProps> = ({ onClose }) =
   const [categoryId, setCategoryId] = useState('cat-hogar');
   const [dueDate, setDueDate] = useState(selectedDate);
   const [isRecurring, setIsRecurring] = useState(true);
+
+  const mepRate = exchangeRate?.mep?.venta || exchangeRate?.venta || 1400;
+  const oficialRate = exchangeRate?.oficial?.venta || 1400;
 
   const parsedAmount = parseFloat(amountStr.replace(',', '.')) || 0;
   const symbol = currency === 'ARS' ? '$' : 'US$';
@@ -133,6 +136,15 @@ export const NewReminderModal: React.FC<NewReminderModalProps> = ({ onClose }) =
               </select>
             </div>
           </div>
+
+          {currency === 'USD' && (
+            <div className="px-3 py-2 bg-surfaceElevated rounded-xl border border-surfaceBorder flex items-center justify-between text-xs text-slate-400 tabular-nums animate-fadeIn">
+              <span>Cotización dólar:</span>
+              <span className="font-semibold text-slate-200">
+                MEP ${mepRate.toLocaleString('es-AR')} · Oficial ${oficialRate.toLocaleString('es-AR')}
+              </span>
+            </div>
+          )}
 
           {/* Categoría asociada */}
           <div className="flex flex-col gap-1.5">

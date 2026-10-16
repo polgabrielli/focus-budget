@@ -32,7 +32,7 @@ function iphoneCaInstallerPlugin(): Plugin {
   let caServer: http.Server | null = null;
 
   const startCaServer = () => {
-    if (caServer || !fs.existsSync(rootCaPath)) return;
+    if (process.env.VITEST || caServer || !fs.existsSync(rootCaPath)) return;
 
     caServer = http.createServer((req, res) => {
       if (req.url === '/rootCA.crt' || req.url === '/rootCA.pem') {

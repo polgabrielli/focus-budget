@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Delete, FileText, X, Check } from 'lucide-react';
+import { Delete, FileText, X, Check, RefreshCw } from 'lucide-react';
 import { useBudget } from '../../context/BudgetContext';
 import { CategoryIcon } from '../Common/CategoryIcon';
+import { type CurrencyCode, type UsdRateType } from '../../types';
 import confetti from 'canvas-confetti';
 
 interface NumericKeypadProps {
@@ -11,6 +12,8 @@ interface NumericKeypadProps {
   setNote: React.Dispatch<React.SetStateAction<string>>;
   isNoteOpen: boolean;
   setIsNoteOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  currency?: CurrencyCode;
+  conversionPreview?: string | null;
   onSubmit?: () => void;
 }
 
@@ -21,10 +24,13 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
   setNote,
   isNoteOpen,
   setIsNoteOpen,
+  currency,
+  conversionPreview,
   onSubmit,
 }) => {
   const { activeCurrency } = useBudget();
-  const currencySymbol = activeCurrency === 'ARS' ? '$' : 'US$';
+  const effectiveCurrency = currency || activeCurrency;
+  const currencySymbol = effectiveCurrency === 'ARS' ? '$' : 'US$';
 
   const handleDigit = useCallback(
     (digit: string) => {
@@ -97,13 +103,20 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
   return (
     <div className="w-full max-w-md mx-auto flex flex-col gap-2.5">
       {/* Amount Display & Note Trigger */}
-      <div className="bg-surfaceElevated border border-surfaceBorder rounded-2xl p-3.5 flex flex-col gap-2.5">
+      <div className="bg-surfaceElevated border border-surfaceBorder rounded-2xl p-3.5 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-baseline gap-1.5 overflow-hidden">
-            <span className="text-xl font-bold text-slate-400">{currencySymbol}</span>
-            <span className="text-3xl font-extrabold tracking-tight text-white font-mono tabular-nums">
-              {amountStr}
-            </span>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-baseline gap-1.5 overflow-hidden">
+              <span className="text-xl font-bold text-slate-400">{currencySymbol}</span>
+              <span className="text-3xl font-extrabold tracking-tight text-white font-mono tabular-nums">
+                {amountStr}
+              </span>
+            </div>
+            {conversionPreview && (
+              <span className="text-xs font-medium text-slate-400 tabular-nums animate-fadeIn">
+                {conversionPreview}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -211,6 +224,8 @@ export const KeypadBottomSheet: React.FC = () => {
     updateTransaction,
     payReminder,
     selectedDate,
+    exchangeRate,
+    refreshExchangeRate,
   } = useBudget();
 
   const [amountStr, setAmountStr] = useState<string>('0');
@@ -219,6 +234,22 @@ export const KeypadBottomSheet: React.FC = () => {
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [selectedSubTag, setSelectedSubTag] = useState<string | null>(null);
   const [entryDate, setEntryDate] = useState<string>(selectedDate);
+  const [currency, setCurrency] = useState<CurrencyCode>('ARS');
+  const [rateType, setRateType] = useState<UsdRateType>('mep');
+  const [isRefreshingRate, setIsRefreshingRate] = useState<boolean>(false);
+
+  const mepRate = exchangeRate?.mep?.venta || exchangeRate?.venta || 1400;
+  const oficialRate = exchangeRate?.oficial?.venta || 1400;
+  const activeRate = rateType === 'oficial' ? oficialRate : mepRate;
+
+  const handleRefreshRate = async () => {
+    setIsRefreshingRate(true);
+    try {
+      await refreshExchangeRate();
+    } finally {
+      setTimeout(() => setIsRefreshingRate(false), 350);
+    }
+  };
 
   useEffect(() => {
     if (keypadDraft.isOpen) {
@@ -230,6 +261,7 @@ export const KeypadBottomSheet: React.FC = () => {
         setSelectedCatId(tx.categoryId);
         setSelectedSubTag(tx.subTag || null);
         setEntryDate(tx.date);
+        setCurrency(tx.currency || 'ARS');
       } else if (keypadDraft.reminderToPay) {
         const rem = keypadDraft.reminderToPay;
         setAmountStr(String(rem.amount));
@@ -238,6 +270,7 @@ export const KeypadBottomSheet: React.FC = () => {
         setSelectedCatId(rem.categoryId);
         setSelectedSubTag(rem.title);
         setEntryDate(selectedDate);
+        setCurrency(rem.currency || 'ARS');
       } else {
         setAmountStr(keypadDraft.initialAmount || '0');
         setNote(keypadDraft.initialNote || '');
@@ -245,6 +278,7 @@ export const KeypadBottomSheet: React.FC = () => {
         setSelectedCatId(keypadDraft.categoryId || activeCategories[0]?.id || null);
         setSelectedSubTag(keypadDraft.subTag || null);
         setEntryDate(selectedDate);
+        setCurrency(keypadDraft.initialCurrency || 'ARS');
       }
     }
   }, [keypadDraft, activeCategories, selectedDate]);
@@ -263,6 +297,20 @@ export const KeypadBottomSheet: React.FC = () => {
   const parsedAmount = parseFloat(amountStr.replace(',', '.')) || 0;
   const currentCategory = categories.find((c) => c.id === selectedCatId) || activeCategories[0];
 
+  let convertedPreview: string | null = null;
+  if (parsedAmount > 0) {
+    if (currency === 'USD') {
+      const convertedArs = Math.round(parsedAmount * activeRate);
+      convertedPreview = `≈ $ ${convertedArs.toLocaleString('es-AR')} ARS (${rateType === 'oficial' ? 'Oficial' : 'MEP'}: $${activeRate.toLocaleString('es-AR')})`;
+    } else {
+      const convertedUsd = (parsedAmount / (activeRate || 1)).toLocaleString('es-AR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      convertedPreview = `≈ US$ ${convertedUsd} (${rateType === 'oficial' ? 'Oficial' : 'MEP'}: $${activeRate.toLocaleString('es-AR')})`;
+    }
+  }
+
   const handleConfirm = async () => {
     if (parsedAmount <= 0 || !currentCategory) return;
 
@@ -273,6 +321,8 @@ export const KeypadBottomSheet: React.FC = () => {
         subTag: selectedSubTag,
         note: note.trim(),
         date: entryDate,
+        currency,
+        exchangeRate: activeRate,
       });
     } else if (keypadDraft.reminderToPay) {
       await payReminder(keypadDraft.reminderToPay.id, parsedAmount, entryDate);
@@ -283,6 +333,8 @@ export const KeypadBottomSheet: React.FC = () => {
         subTag: selectedSubTag,
         note: note.trim() || undefined,
         date: entryDate,
+        currency,
+        exchangeRate: activeRate,
       });
     }
 
@@ -307,6 +359,8 @@ export const KeypadBottomSheet: React.FC = () => {
 
     closeKeypad();
   };
+
+  const symbol = currency === 'ARS' ? '$' : 'US$';
 
   return (
     <div
@@ -362,6 +416,78 @@ export const KeypadBottomSheet: React.FC = () => {
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Currency & Exchange Rate Bar (Visible ONLY when recording/editing a movement) */}
+        <div className="flex items-center justify-between gap-2 p-1.5 bg-surfaceElevated rounded-2xl border border-surfaceBorder">
+          {/* Currency Toggle */}
+          <div
+            role="group"
+            aria-label="Moneda del movimiento"
+            className="flex items-center bg-surface p-0.5 rounded-xl border border-surfaceBorder shrink-0"
+          >
+            <button
+              type="button"
+              onClick={() => setCurrency('ARS')}
+              className={`px-3 py-1.5 min-h-[34px] text-xs font-bold rounded-lg transition-colors active-press ${
+                currency === 'ARS'
+                  ? 'bg-slate-100 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              ARS ($)
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrency('USD')}
+              className={`px-3 py-1.5 min-h-[34px] text-xs font-bold rounded-lg transition-colors active-press ${
+                currency === 'USD'
+                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              USD (US$)
+            </button>
+          </div>
+
+          {/* Exchange Rate: Oficial vs MEP (Selector & Live Rate) */}
+          <div className="flex items-center gap-1 min-w-0">
+            <button
+              type="button"
+              onClick={() => setRateType('mep')}
+              title={`Usar cotización Dólar MEP (Bolsa): $${mepRate.toLocaleString('es-AR')}`}
+              aria-label={`Usar cotización MEP ${mepRate} pesos`}
+              className={`px-2 py-1 min-h-[32px] text-xs font-semibold rounded-lg border transition-colors active-press tabular-nums shrink-0 ${
+                rateType === 'mep'
+                  ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500/50'
+                  : 'bg-surfaceHighlight text-slate-400 border-surfaceBorder hover:text-slate-200'
+              }`}
+            >
+              MEP ${mepRate.toLocaleString('es-AR')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRateType('oficial')}
+              title={`Usar cotización Dólar Oficial: $${oficialRate.toLocaleString('es-AR')}`}
+              aria-label={`Usar cotización Oficial ${oficialRate} pesos`}
+              className={`px-2 py-1 min-h-[32px] text-xs font-semibold rounded-lg border transition-colors active-press tabular-nums shrink-0 ${
+                rateType === 'oficial'
+                  ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500/50'
+                  : 'bg-surfaceHighlight text-slate-400 border-surfaceBorder hover:text-slate-200'
+              }`}
+            >
+              Oficial ${oficialRate.toLocaleString('es-AR')}
+            </button>
+            <button
+              type="button"
+              onClick={handleRefreshRate}
+              title="Actualizar cotizaciones en vivo desde Dolar API"
+              aria-label="Actualizar cotización dólar"
+              className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white bg-surfaceHighlight border border-surfaceBorder active-press shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingRate ? 'animate-spin text-indigo-400' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {/* Category switcher pills (when adding or editing) */}
@@ -422,6 +548,8 @@ export const KeypadBottomSheet: React.FC = () => {
           setNote={setNote}
           isNoteOpen={isNoteOpen}
           setIsNoteOpen={setIsNoteOpen}
+          currency={currency}
+          conversionPreview={convertedPreview}
           onSubmit={handleConfirm}
         />
 
@@ -442,7 +570,7 @@ export const KeypadBottomSheet: React.FC = () => {
               ? 'Guardar cambios'
               : keypadDraft.reminderToPay
               ? `Confirmar pago (${keypadDraft.reminderToPay.currency === 'ARS' ? '$' : 'US$'} ${parsedAmount.toLocaleString('es-AR')})`
-              : `Guardar en ${currentCategory?.name || 'Categoría'}`}
+              : `Guardar ${symbol} ${parsedAmount.toLocaleString('es-AR')} en ${currentCategory?.name || 'Categoría'}`}
           </span>
         </button>
       </div>

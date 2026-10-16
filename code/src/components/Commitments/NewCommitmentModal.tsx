@@ -12,7 +12,7 @@ export const NewCommitmentModal: React.FC<NewCommitmentModalProps> = ({
   initialType = 'debt',
   onClose,
 }) => {
-  const { addCommitment, activeCurrency } = useBudget();
+  const { addCommitment, activeCurrency, exchangeRate } = useBudget();
 
   const [type, setType] = useState<CommitmentType>(initialType);
   const [title, setTitle] = useState('');
@@ -23,6 +23,9 @@ export const NewCommitmentModal: React.FC<NewCommitmentModalProps> = ({
   const [installmentsCountStr, setInstallmentsCountStr] = useState('3');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
+
+  const mepRate = exchangeRate?.mep?.venta || exchangeRate?.venta || 1400;
+  const oficialRate = exchangeRate?.oficial?.venta || 1400;
 
   const parsedAmount = parseFloat(totalAmountStr.replace(',', '.')) || 0;
   const parsedInstallments = hasInstallments
@@ -185,6 +188,15 @@ export const NewCommitmentModal: React.FC<NewCommitmentModalProps> = ({
               </select>
             </div>
           </div>
+
+          {currency === 'USD' && (
+            <div className="px-3 py-2 bg-surfaceElevated rounded-xl border border-surfaceBorder flex items-center justify-between text-xs text-slate-400 tabular-nums animate-fadeIn">
+              <span>Cotización dólar:</span>
+              <span className="font-semibold text-slate-200">
+                MEP ${mepRate.toLocaleString('es-AR')} · Oficial ${oficialRate.toLocaleString('es-AR')}
+              </span>
+            </div>
+          )}
 
           {/* Cuotas fijas toggle */}
           <div className="bg-surfaceElevated border border-surfaceBorder rounded-2xl p-3.5 flex flex-col gap-2.5">

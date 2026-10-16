@@ -13,9 +13,10 @@ export const PayCommitmentModal: React.FC<PayCommitmentModalProps> = ({
   commitment,
   onClose,
 }) => {
-  const { payCommitment, selectedDate } = useBudget();
+  const { payCommitment, selectedDate, exchangeRate } = useBudget();
   const isDebt = commitment.type === 'debt';
   const symbol = commitment.currency === 'ARS' ? '$' : 'US$';
+  const mepRate = exchangeRate?.mep?.venta || exchangeRate?.venta || 1400;
 
   const remaining = Math.max(0, commitment.totalAmount - commitment.paidAmount);
 
@@ -157,13 +158,20 @@ export const PayCommitmentModal: React.FC<PayCommitmentModalProps> = ({
               />
             </div>
             {parsedAmount > 0 && (
-              <span className="text-xs text-slate-400 px-1 tabular-nums">
-                Saldo restante:{' '}
-                <strong className={nextRemaining === 0 ? 'text-emerald-400' : 'text-slate-200'}>
-                  {symbol} {nextRemaining.toLocaleString('es-AR')}
-                  {nextRemaining === 0 ? ' (¡Saldado!)' : ''}
-                </strong>
-              </span>
+              <div className="flex flex-col gap-0.5 px-1 text-xs text-slate-400 tabular-nums">
+                <span>
+                  Saldo restante:{' '}
+                  <strong className={nextRemaining === 0 ? 'text-emerald-400' : 'text-slate-200'}>
+                    {symbol} {nextRemaining.toLocaleString('es-AR')}
+                    {nextRemaining === 0 ? ' (¡Saldado!)' : ''}
+                  </strong>
+                </span>
+                {commitment.currency === 'USD' && (
+                  <span className="text-[11px] text-slate-400">
+                    ≈ $ {Math.round(parsedAmount * mepRate).toLocaleString('es-AR')} ARS (dólar MEP: ${mepRate.toLocaleString('es-AR')})
+                  </span>
+                )}
+              </div>
             )}
           </div>
 

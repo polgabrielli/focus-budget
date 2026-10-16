@@ -68,6 +68,15 @@ export interface Reminder {
   deletedAt?: string | null;
 }
 
+export type UsdRateType = 'oficial' | 'mep' | 'blue';
+
+export interface ExchangeRateDetail {
+  compra: number;
+  venta: number;
+  nombre?: string;
+  fechaActualizacion?: string;
+}
+
 export interface ExchangeRateCache {
   id: string; // 'USD'
   currency: string;
@@ -75,6 +84,10 @@ export interface ExchangeRateCache {
   venta: number;
   source: string;
   fetchedAt: string; // ISO
+  oficial?: ExchangeRateDetail;
+  mep?: ExchangeRateDetail;
+  blue?: ExchangeRateDetail;
+  activeRateType?: UsdRateType;
 }
 
 export interface DateFilter {

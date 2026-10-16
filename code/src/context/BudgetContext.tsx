@@ -29,6 +29,7 @@ export interface KeypadDraft {
   subTag?: string | null;
   initialAmount?: string;
   initialNote?: string;
+  initialCurrency?: CurrencyCode;
   editingTransaction?: Transaction | null;
   reminderToPay?: Reminder | null;
 }
@@ -74,13 +75,14 @@ interface BudgetContextType {
     note?: string;
     type?: TransactionType;
     currency?: CurrencyCode;
+    exchangeRate?: number;
     commitmentId?: string | null;
     reminderId?: string | null;
     date?: string;
   }) => Promise<Transaction>;
   updateTransaction: (
     id: string,
-    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type'>>
+    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type' | 'exchangeRate'>>
   ) => Promise<void>;
   undoLastTransaction: () => Promise<void>;
   dismissUndo: () => void;
@@ -242,6 +244,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       subTag: draft?.subTag ?? null,
       initialAmount: draft?.initialAmount ?? '0',
       initialNote: draft?.initialNote ?? '',
+      initialCurrency: draft?.initialCurrency,
       editingTransaction: draft?.editingTransaction ?? null,
       reminderToPay: draft?.reminderToPay ?? null,
     });
@@ -376,6 +379,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       note,
       type,
       currency,
+      exchangeRate: customRate,
       commitmentId,
       reminderId,
       date,
@@ -386,6 +390,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       note?: string;
       type?: TransactionType;
       currency?: CurrencyCode;
+      exchangeRate?: number;
       commitmentId?: string | null;
       reminderId?: string | null;
       date?: string;
@@ -396,7 +401,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   ): Promise<Transaction> => {
     const nowIso = new Date().toISOString();
-    const rate = exchangeRate?.venta || 1400;
+    const rate = customRate || exchangeRate?.venta || 1400;
 
     const matchedCat = categories.find((c) => c.id === categoryId);
     const finalType = type || matchedCat?.type || transactionType;
@@ -439,6 +444,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     note?: string;
     type?: TransactionType;
     currency?: CurrencyCode;
+    exchangeRate?: number;
     commitmentId?: string | null;
     reminderId?: string | null;
     date?: string;
@@ -446,10 +452,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return addTransactionInternal(params);
   };
 
-  // Update existing transaction (edit amount, category, subTag, note, date)
+  // Update existing transaction (edit amount, category, subTag, note, date, currency, exchangeRate)
   const updateTransaction = async (
     id: string,
-    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type'>>
+    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type' | 'exchangeRate'>>
   ) => {
     const existing = await db.transactions.get(id);
     if (!existing) return;

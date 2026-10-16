@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useBudget } from '../../context/BudgetContext';
-import { Calendar, RefreshCw, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ReportsAndAiModal } from '../Export/ReportsAndAiModal';
 
 const MONTH_NAMES = [
@@ -15,27 +15,13 @@ export const HeaderBar: React.FC = () => {
     setDatePreset,
     shiftMonth,
     selectedDate,
-    activeCurrency,
-    setActiveCurrency,
-    exchangeRate,
-    refreshExchangeRate,
   } = useBudget();
 
   const [isReportsOpen, setIsReportsOpen] = useState(false);
-  const [isRefreshingRate, setIsRefreshingRate] = useState(false);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value) {
       setDatePreset('custom', e.target.value);
-    }
-  };
-
-  const handleRefreshRate = async () => {
-    setIsRefreshingRate(true);
-    try {
-      await refreshExchangeRate();
-    } finally {
-      setTimeout(() => setIsRefreshingRate(false), 300);
     }
   };
 
@@ -55,60 +41,15 @@ export const HeaderBar: React.FC = () => {
   return (
     <>
       <header className="w-full flex flex-col gap-2.5 pt-3 pb-1.5 px-4 max-w-md mx-auto">
-        {/* Top row: Brand, Exchange Rate Pill, Currency Switcher & Tools */}
+        {/* Top row: Brand & Tools */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <h1 className="text-base font-bold tracking-tight text-slate-100 truncate">
               Focus Budget
             </h1>
-
-            {exchangeRate && (
-              <button
-                type="button"
-                onClick={handleRefreshRate}
-                title={`Cotización oficial venta: $${exchangeRate.venta}. Tocá para actualizar.`}
-                aria-label={`Cotización dólar oficial ${exchangeRate.venta} pesos. Actualizar cotización`}
-                className="flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-surface hover:bg-surfaceHighlight px-2.5 py-1.5 rounded-lg border border-surfaceBorder active-press tabular-nums shrink-0"
-              >
-                <RefreshCw
-                  className={`w-3 h-3 text-slate-400 ${isRefreshingRate ? 'animate-spin' : ''}`}
-                />
-                <span>US$ ${exchangeRate.venta}</span>
-              </button>
-            )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Currency Switcher */}
-            <div
-              role="group"
-              aria-label="Moneda de visualización"
-              className="flex items-center bg-surface p-0.5 rounded-lg border border-surfaceBorder"
-            >
-              <button
-                type="button"
-                onClick={() => setActiveCurrency('ARS')}
-                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors active-press ${
-                  activeCurrency === 'ARS'
-                    ? 'bg-slate-100 text-slate-950'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                ARS
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCurrency('USD')}
-                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors active-press ${
-                  activeCurrency === 'USD'
-                    ? 'bg-slate-100 text-slate-950'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                USD
-              </button>
-            </div>
-
             {/* Reports, AI & Backup trigger */}
             <button
               type="button"
