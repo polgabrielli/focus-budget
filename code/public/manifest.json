@@ -2,14 +2,15 @@
   "name": "Focus Budget — Finanzas TDAH",
   "short_name": "FocusBudget",
   "description": "App de finanzas personales, préstamos y vencimientos 100% offline con fricción cero.",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0B0F17",
-  "theme_color": "#0B0F17",
+  "background_color": "#0A0D12",
+  "theme_color": "#0A0D12",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "./icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

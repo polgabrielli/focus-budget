@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { db, seedCategories } from '../db/db';
 import { 
   type Transaction, 
@@ -10,7 +10,7 @@ import {
   type CommitmentType,
   type Reminder,
 } from '../types';
-import { fetchExchangeRate } from '../services/currencyService';
+import { fetchExchangeRate, convertAmount } from '../services/currencyService';
 
 export type AppView = 'dial' | 'commitments' | 'reminders';
 
@@ -23,17 +23,36 @@ export interface CommitmentsSummary {
   totalCreditCollected: number;
 }
 
+export interface KeypadDraft {
+  isOpen: boolean;
+  categoryId?: string | null;
+  subTag?: string | null;
+  initialAmount?: string;
+  initialNote?: string;
+  editingTransaction?: Transaction | null;
+  reminderToPay?: Reminder | null;
+}
+
+interface UndoSnapshot {
+  action: 'add' | 'delete';
+  transaction: Transaction;
+  previousCommitment?: Commitment | null;
+  previousReminder?: Reminder | null;
+}
+
 interface BudgetContextType {
   activeView: AppView;
   setActiveView: (view: AppView) => void;
   selectedDate: string; // YYYY-MM-DD
   datePreset: 'today' | 'yesterday' | 'custom';
   setDatePreset: (preset: 'today' | 'yesterday' | 'custom', customDate?: string) => void;
+  shiftMonth: (delta: -1 | 1) => void;
   activeCurrency: CurrencyCode;
   setActiveCurrency: (currency: CurrencyCode) => void;
   transactionType: TransactionType;
   setTransactionType: (type: TransactionType) => void;
   exchangeRate: ExchangeRateCache | null;
+  refreshExchangeRate: () => Promise<void>;
   transactions: Transaction[];
   allTransactionsForMonth: Transaction[];
   categories: Category[];
@@ -43,7 +62,11 @@ interface BudgetContextType {
   reminders: Reminder[];
   activeReminders: Reminder[];
   lastAddedTransaction: Transaction | null;
+  lastUndoAction: 'add' | 'delete';
   isUndoVisible: boolean;
+  keypadDraft: KeypadDraft;
+  openKeypad: (draft?: Partial<Omit<KeypadDraft, 'isOpen'>>) => void;
+  closeKeypad: () => void;
   addTransaction: (params: {
     amount: number;
     categoryId: string;
@@ -52,8 +75,13 @@ interface BudgetContextType {
     type?: TransactionType;
     currency?: CurrencyCode;
     commitmentId?: string | null;
+    reminderId?: string | null;
     date?: string;
   }) => Promise<Transaction>;
+  updateTransaction: (
+    id: string,
+    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type'>>
+  ) => Promise<void>;
   undoLastTransaction: () => Promise<void>;
   dismissUndo: () => void;
   deleteTransaction: (id: string) => Promise<void>;
@@ -86,6 +114,12 @@ interface BudgetContextType {
   }) => Promise<Reminder>;
   payReminder: (reminderId: string, customAmount?: number, paymentDate?: string) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
+  restoreBackup: (payload: {
+    transactions?: Transaction[];
+    categories?: Category[];
+    commitments?: Commitment[];
+    reminders?: Reminder[];
+  }) => Promise<void>;
   currentTotals: {
     income: number;
     expense: number;
@@ -97,7 +131,29 @@ interface BudgetContextType {
 
 const BudgetContext = createContext<BudgetContextType | undefined>(undefined);
 
-function getTodayString(): string {
+/**
+ * Generates a RFC4122 v4 UUID even on non-HTTPS LAN origins where crypto.randomUUID is undefined.
+ */
+export function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function getTodayString(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -105,7 +161,7 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`;
 }
 
-function getYesterdayString(): string {
+export function getYesterdayString(): string {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const year = yesterday.getFullYear();
@@ -146,11 +202,64 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [allTransactionsForMonth, setAllTransactionsForMonth] = useState<Transaction[]>([]);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  
-  // Undo mechanism (5-second window)
+
+  // Global Keypad Sheet Draft (Monefy-style category -> keypad flow)
+  const [keypadDraft, setKeypadDraft] = useState<KeypadDraft>({
+    isOpen: false,
+    categoryId: null,
+    subTag: null,
+    initialAmount: '0',
+    initialNote: '',
+    editingTransaction: null,
+    reminderToPay: null,
+  });
+
+  // Undo mechanism (5-second window) with full side-effect reversal
   const [lastAddedTransaction, setLastAddedTransaction] = useState<Transaction | null>(null);
+  const [lastUndoAction, setLastUndoAction] = useState<'add' | 'delete'>('add');
   const [isUndoVisible, setIsUndoVisible] = useState<boolean>(false);
-  const [undoTimer, setUndoTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoSnapshotRef = useRef<UndoSnapshot | null>(null);
+
+  const triggerUndoBanner = useCallback((snapshot: UndoSnapshot) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoSnapshotRef.current = snapshot;
+    setLastAddedTransaction(snapshot.transaction);
+    setLastUndoAction(snapshot.action);
+    setIsUndoVisible(true);
+
+    undoTimerRef.current = setTimeout(() => {
+      setIsUndoVisible(false);
+      setLastAddedTransaction(null);
+      undoSnapshotRef.current = null;
+    }, 5000);
+  }, []);
+
+  const openKeypad = useCallback((draft?: Partial<Omit<KeypadDraft, 'isOpen'>>) => {
+    setKeypadDraft({
+      isOpen: true,
+      categoryId: draft?.categoryId ?? null,
+      subTag: draft?.subTag ?? null,
+      initialAmount: draft?.initialAmount ?? '0',
+      initialNote: draft?.initialNote ?? '',
+      editingTransaction: draft?.editingTransaction ?? null,
+      reminderToPay: draft?.reminderToPay ?? null,
+    });
+  }, []);
+
+  const closeKeypad = useCallback(() => {
+    setKeypadDraft((prev) => ({
+      ...prev,
+      isOpen: false,
+      editingTransaction: null,
+      reminderToPay: null,
+    }));
+  }, []);
+
+  const refreshExchangeRate = useCallback(async () => {
+    const rate = await fetchExchangeRate();
+    setExchangeRate(rate);
+  }, []);
 
   // Initialize DB and fetch exchange rate
   const initApp = useCallback(async () => {
@@ -166,31 +275,48 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  // Fetch transactions, commitments, and reminders
+  // Keep "Today" fresh when returning from background on iOS PWA
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && datePreset === 'today') {
+        const currentToday = getTodayString();
+        setSelectedDate((prev) => (prev !== currentToday ? currentToday : prev));
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [datePreset]);
+
+  // Fetch transactions, commitments, and reminders using indexed queries where possible
   const refreshData = useCallback(async () => {
     try {
       const currentMonth = selectedDate.substring(0, 7); // 'YYYY-MM'
 
-      // Get all non-deleted transactions for the current month
       const monthItems = await db.transactions
-        .filter(t => !t.deletedAt && t.date.startsWith(currentMonth))
+        .where('date')
+        .startsWith(currentMonth)
+        .filter((t) => !t.deletedAt)
         .toArray();
-      
+
+      // Sort newest first (by date desc, then createdAt desc)
+      monthItems.sort((a, b) => {
+        const dateCmp = b.date.localeCompare(a.date);
+        if (dateCmp !== 0) return dateCmp;
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+
       setAllTransactionsForMonth(monthItems);
 
-      // Get transactions for selected date
-      const dateItems = monthItems.filter(t => t.date === selectedDate);
+      const dateItems = monthItems.filter((t) => t.date === selectedDate);
       setTransactions(dateItems);
 
-      // Get all non-deleted commitments
       const commItems = await db.commitments
-        .filter(c => !c.deletedAt)
+        .filter((c) => !c.deletedAt)
         .toArray();
       setCommitments(commItems);
 
-      // Get all non-deleted reminders
       const remItems = await db.reminders
-        .filter(r => !r.deletedAt)
+        .filter((r) => !r.deletedAt)
         .toArray();
       setReminders(remItems);
     } catch (err) {
@@ -218,26 +344,57 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  // Add Transaction
-  const addTransaction = async ({
-    amount,
-    categoryId,
-    subTag,
-    note,
-    type,
-    currency,
-    commitmentId,
-    date,
-  }: {
-    amount: number;
-    categoryId: string;
-    subTag?: string | null;
-    note?: string;
-    type?: TransactionType;
-    currency?: CurrencyCode;
-    commitmentId?: string | null;
-    date?: string;
-  }): Promise<Transaction> => {
+  // Shift active month backward or forward
+  const shiftMonth = (delta: -1 | 1) => {
+    const [yearStr, monthStr] = selectedDate.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10) + delta;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    } else if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    const today = getTodayString();
+    const targetPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    if (today.startsWith(targetPrefix)) {
+      setDatePresetState('today');
+      setSelectedDate(today);
+    } else {
+      setDatePresetState('custom');
+      setSelectedDate(`${targetPrefix}-01`);
+    }
+  };
+
+  // Internal helper to add transaction with optional side-effect undo snapshot
+  const addTransactionInternal = async (
+    {
+      amount,
+      categoryId,
+      subTag,
+      note,
+      type,
+      currency,
+      commitmentId,
+      reminderId,
+      date,
+    }: {
+      amount: number;
+      categoryId: string;
+      subTag?: string | null;
+      note?: string;
+      type?: TransactionType;
+      currency?: CurrencyCode;
+      commitmentId?: string | null;
+      reminderId?: string | null;
+      date?: string;
+    },
+    sideEffects?: {
+      previousCommitment?: Commitment | null;
+      previousReminder?: Reminder | null;
+    }
+  ): Promise<Transaction> => {
     const nowIso = new Date().toISOString();
     const rate = exchangeRate?.venta || 1400;
 
@@ -246,7 +403,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const finalCurrency = currency || activeCurrency;
 
     const newTx: Transaction = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       amount,
       type: finalType,
       categoryId,
@@ -256,6 +413,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       date: date || selectedDate,
       note: note || '',
       commitmentId: commitmentId || null,
+      reminderId: reminderId || null,
       createdAt: nowIso,
       updatedAt: nowIso,
       deletedAt: null,
@@ -263,48 +421,133 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     await db.transactions.add(newTx);
 
-    // Set Undo Toast
-    if (undoTimer) clearTimeout(undoTimer);
-    setLastAddedTransaction(newTx);
-    setIsUndoVisible(true);
-
-    const timer = setTimeout(() => {
-      setIsUndoVisible(false);
-      setLastAddedTransaction(null);
-    }, 5000);
-    setUndoTimer(timer);
+    triggerUndoBanner({
+      action: 'add',
+      transaction: newTx,
+      previousCommitment: sideEffects?.previousCommitment || null,
+      previousReminder: sideEffects?.previousReminder || null,
+    });
 
     await refreshData();
     return newTx;
   };
 
-  // Undo Last Transaction
+  const addTransaction = async (params: {
+    amount: number;
+    categoryId: string;
+    subTag?: string | null;
+    note?: string;
+    type?: TransactionType;
+    currency?: CurrencyCode;
+    commitmentId?: string | null;
+    reminderId?: string | null;
+    date?: string;
+  }): Promise<Transaction> => {
+    return addTransactionInternal(params);
+  };
+
+  // Update existing transaction (edit amount, category, subTag, note, date)
+  const updateTransaction = async (
+    id: string,
+    updates: Partial<Pick<Transaction, 'amount' | 'categoryId' | 'subTag' | 'note' | 'date' | 'currency' | 'type'>>
+  ) => {
+    const existing = await db.transactions.get(id);
+    if (!existing) return;
+
+    const matchedCat = updates.categoryId
+      ? categories.find((c) => c.id === updates.categoryId)
+      : undefined;
+
+    await db.transactions.update(id, {
+      ...updates,
+      type: updates.type || matchedCat?.type || existing.type,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await refreshData();
+  };
+
+  // Undo Last Transaction (or Restore Last Deleted Transaction) + revert Commitment/Reminder state
   const undoLastTransaction = async () => {
     if (!lastAddedTransaction) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
 
-    if (undoTimer) clearTimeout(undoTimer);
-    await db.transactions.delete(lastAddedTransaction.id);
+    const snapshot = undoSnapshotRef.current;
+
+    if (snapshot?.action === 'delete') {
+      // Restore soft-deleted transaction
+      await db.transactions.update(lastAddedTransaction.id, {
+        deletedAt: null,
+        updatedAt: new Date().toISOString(),
+      });
+      if (snapshot.previousCommitment) {
+        await db.commitments.put(snapshot.previousCommitment);
+      }
+      if (snapshot.previousReminder) {
+        await db.reminders.put(snapshot.previousReminder);
+      }
+    } else {
+      // Revert added transaction
+      await db.transactions.delete(lastAddedTransaction.id);
+      if (snapshot?.previousCommitment) {
+        await db.commitments.put(snapshot.previousCommitment);
+      }
+      if (snapshot?.previousReminder) {
+        await db.reminders.put(snapshot.previousReminder);
+      }
+    }
+
     setIsUndoVisible(false);
     setLastAddedTransaction(null);
+    undoSnapshotRef.current = null;
     await refreshData();
   };
 
   const dismissUndo = () => {
-    if (undoTimer) clearTimeout(undoTimer);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setIsUndoVisible(false);
     setLastAddedTransaction(null);
+    undoSnapshotRef.current = null;
   };
 
-  // Delete Transaction (Soft-delete)
+  // Delete Transaction (Soft-delete + revert linked commitment if applicable)
   const deleteTransaction = async (id: string) => {
     const tx = await db.transactions.get(id);
-    if (tx) {
-      await db.transactions.update(id, {
-        deletedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      await refreshData();
+    if (!tx) return;
+
+    const nowIso = new Date().toISOString();
+    let prevCommitment: Commitment | null = null;
+
+    if (tx.commitmentId) {
+      const comm = await db.commitments.get(tx.commitmentId);
+      if (comm) {
+        prevCommitment = { ...comm };
+        const revertedPaid = Math.max(0, comm.paidAmount - tx.amount);
+        const revertedInstallments =
+          comm.installmentsTotal && comm.installmentsPaid
+            ? Math.max(0, comm.installmentsPaid - 1)
+            : comm.installmentsPaid;
+        await db.commitments.update(comm.id, {
+          paidAmount: revertedPaid,
+          installmentsPaid: revertedInstallments,
+          isCompleted: revertedPaid >= comm.totalAmount,
+          updatedAt: nowIso,
+        });
+      }
     }
+
+    await db.transactions.update(id, {
+      deletedAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    triggerUndoBanner({
+      action: 'delete',
+      transaction: tx,
+      previousCommitment: prevCommitment,
+    });
+
+    await refreshData();
   };
 
   // Add Commitment
@@ -320,7 +563,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }): Promise<Commitment> => {
     const nowIso = new Date().toISOString();
     const newCommitment: Commitment = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       title: params.title.trim(),
       counterpart: params.counterpart.trim(),
       type: params.type,
@@ -342,7 +585,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return newCommitment;
   };
 
-  // Pay Commitment (Amortization linked with Daily Transactions)
+  // Pay Commitment (Amortization linked with Daily Transactions + reversible via Undo)
   const payCommitment = async ({
     commitmentId,
     amount,
@@ -359,15 +602,21 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const commitment = await db.commitments.get(commitmentId);
     if (!commitment) return;
 
-    const newPaidAmount = commitment.paidAmount + amount;
+    const previousCommitmentSnapshot: Commitment = { ...commitment };
+
+    const newPaidAmount = Math.min(commitment.totalAmount, commitment.paidAmount + amount);
     const isCompleted = newPaidAmount >= commitment.totalAmount;
-    
+
     let newInstallmentsPaid = commitment.installmentsPaid;
     if (commitment.installmentsTotal) {
-      newInstallmentsPaid = Math.min(
-        commitment.installmentsTotal,
-        (commitment.installmentsPaid || 0) + 1
-      );
+      if (isCompleted) {
+        newInstallmentsPaid = commitment.installmentsTotal;
+      } else {
+        newInstallmentsPaid = Math.min(
+          commitment.installmentsTotal,
+          (commitment.installmentsPaid || 0) + 1
+        );
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -382,25 +631,27 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const fallbackCategory = txType === 'expense' ? 'cat-hogar' : 'cat-otros-ingresos';
     const txCategory = categoryId || fallbackCategory;
 
-    const installmentText = commitment.installmentsTotal 
+    const installmentText = commitment.installmentsTotal
       ? `(Cuota ${newInstallmentsPaid}/${commitment.installmentsTotal})`
       : '';
-    const defaultNote = commitment.type === 'debt'
-      ? `Pago cuota a ${commitment.counterpart} ${installmentText}`.trim()
-      : `Cobro cuota de ${commitment.counterpart} ${installmentText}`.trim();
+    const defaultNote =
+      commitment.type === 'debt'
+        ? `Pago cuota a ${commitment.counterpart} ${installmentText}`.trim()
+        : `Cobro cuota de ${commitment.counterpart} ${installmentText}`.trim();
 
-    await addTransaction({
-      amount,
-      categoryId: txCategory,
-      subTag: commitment.title,
-      note: note || defaultNote,
-      type: txType,
-      currency: commitment.currency,
-      commitmentId: commitment.id,
-      date: date || selectedDate,
-    });
-
-    await refreshData();
+    await addTransactionInternal(
+      {
+        amount,
+        categoryId: txCategory,
+        subTag: commitment.title,
+        note: note || defaultNote,
+        type: txType,
+        currency: commitment.currency,
+        commitmentId: commitment.id,
+        date: date || selectedDate,
+      },
+      { previousCommitment: previousCommitmentSnapshot }
+    );
   };
 
   // Delete Commitment (Soft-delete)
@@ -425,14 +676,16 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }): Promise<Reminder> => {
     const nowIso = new Date().toISOString();
     const newReminder: Reminder = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       title: params.title.trim(),
       amount: params.amount,
       currency: params.currency,
       dueDate: params.dueDate,
       categoryId: params.categoryId,
       isRecurring: params.isRecurring,
-      recurrenceDay: params.isRecurring ? (params.recurrenceDay || parseInt(params.dueDate.split('-')[2], 10)) : null,
+      recurrenceDay: params.isRecurring
+        ? params.recurrenceDay || parseInt(params.dueDate.split('-')[2], 10)
+        : null,
       status: 'pending',
       paidDate: null,
       createdAt: nowIso,
@@ -445,7 +698,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return newReminder;
   };
 
-  // Pay Reminder (1-Touch Service Payment)
+  // Pay Reminder (1-Touch Service Payment + reversible via Undo)
   const payReminder = async (
     reminderId: string,
     customAmount?: number,
@@ -454,37 +707,41 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const reminder = await db.reminders.get(reminderId);
     if (!reminder) return;
 
+    const previousReminderSnapshot: Reminder = { ...reminder };
     const nowIso = new Date().toISOString();
     const amountToPay = customAmount !== undefined ? customAmount : reminder.amount;
-
-    // Record expense transaction
-    await addTransaction({
-      amount: amountToPay,
-      categoryId: reminder.categoryId,
-      subTag: reminder.title,
-      note: `Pago de servicio: ${reminder.title}`,
-      type: 'expense',
-      currency: reminder.currency,
-      date: paymentDate || selectedDate,
-    });
 
     if (reminder.isRecurring) {
       const nextDueDate = getNextMonthlyDueDate(reminder.dueDate, reminder.recurrenceDay);
       await db.reminders.update(reminderId, {
         dueDate: nextDueDate,
+        amount: amountToPay,
         paidDate: nowIso,
         updatedAt: nowIso,
-        status: 'pending', // rolls over to next month's radar!
+        status: 'pending',
       });
     } else {
       await db.reminders.update(reminderId, {
         status: 'paid',
+        amount: amountToPay,
         paidDate: nowIso,
         updatedAt: nowIso,
       });
     }
 
-    await refreshData();
+    await addTransactionInternal(
+      {
+        amount: amountToPay,
+        categoryId: reminder.categoryId,
+        subTag: reminder.title,
+        note: `Pago de servicio: ${reminder.title}`,
+        type: 'expense',
+        currency: reminder.currency,
+        reminderId: reminder.id,
+        date: paymentDate || selectedDate,
+      },
+      { previousReminder: previousReminderSnapshot }
+    );
   };
 
   // Delete Reminder (Soft-delete)
@@ -497,33 +754,51 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await refreshData();
   };
 
+  // Restore Backup JSON
+  const restoreBackup = async (payload: {
+    transactions?: Transaction[];
+    categories?: Category[];
+    commitments?: Commitment[];
+    reminders?: Reminder[];
+  }) => {
+    if (Array.isArray(payload.categories) && payload.categories.length > 0) {
+      await db.categories.bulkPut(payload.categories);
+      const allCats = await db.categories.orderBy('sortOrder').toArray();
+      setCategories(allCats);
+    }
+    if (Array.isArray(payload.transactions)) {
+      await db.transactions.bulkPut(payload.transactions);
+    }
+    if (Array.isArray(payload.commitments)) {
+      await db.commitments.bulkPut(payload.commitments);
+    }
+    if (Array.isArray(payload.reminders)) {
+      await db.reminders.bulkPut(payload.reminders);
+    }
+    await refreshData();
+  };
+
   // Active sorted reminders for the Radar
   const activeReminders = useMemo(() => {
     return reminders
-      .filter(r => r.status === 'pending' && !r.deletedAt)
+      .filter((r) => r.status === 'pending' && !r.deletedAt)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [reminders]);
 
   // Filter categories by current transaction type (expense vs income)
   const activeCategories = useMemo(() => {
-    return categories.filter(c => c.type === transactionType);
+    return categories.filter((c) => c.type === transactionType);
   }, [categories, transactionType]);
 
-  // Calculate Totals for the current month
+  // Calculate Totals for the current month using convertAmount
   const currentTotals = useMemo(() => {
     let income = 0;
     let expense = 0;
-    const rate = exchangeRate?.venta || 1400;
+    const fallbackRate = exchangeRate?.venta || 1400;
 
-    allTransactionsForMonth.forEach(tx => {
-      let val = tx.amount;
-      if (tx.currency !== activeCurrency) {
-        if (activeCurrency === 'ARS' && tx.currency === 'USD') {
-          val = val * (tx.exchangeRate || rate);
-        } else if (activeCurrency === 'USD' && tx.currency === 'ARS') {
-          val = (tx.exchangeRate || rate) > 0 ? val / (tx.exchangeRate || rate) : 0;
-        }
-      }
+    allTransactionsForMonth.forEach((tx) => {
+      const rateToUse = tx.exchangeRate || fallbackRate;
+      const val = convertAmount(tx.amount, tx.currency, activeCurrency, rateToUse);
 
       if (tx.type === 'income') {
         income += val;
@@ -542,19 +817,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Calculate category totals for the donut dial
   const categoryTotals = useMemo(() => {
     const totals: Record<string, number> = {};
-    const rate = exchangeRate?.venta || 1400;
+    const fallbackRate = exchangeRate?.venta || 1400;
 
     allTransactionsForMonth
-      .filter(tx => tx.type === transactionType)
-      .forEach(tx => {
-        let val = tx.amount;
-        if (tx.currency !== activeCurrency) {
-          if (activeCurrency === 'ARS' && tx.currency === 'USD') {
-            val = val * (tx.exchangeRate || rate);
-          } else if (activeCurrency === 'USD' && tx.currency === 'ARS') {
-            val = (tx.exchangeRate || rate) > 0 ? val / (tx.exchangeRate || rate) : 0;
-          }
-        }
+      .filter((tx) => tx.type === transactionType)
+      .forEach((tx) => {
+        const rateToUse = tx.exchangeRate || fallbackRate;
+        const val = convertAmount(tx.amount, tx.currency, activeCurrency, rateToUse);
         totals[tx.categoryId] = (totals[tx.categoryId] || 0) + val;
       });
 
@@ -571,20 +840,9 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const rate = exchangeRate?.venta || 1400;
 
-    commitments.forEach(c => {
-      let total = c.totalAmount;
-      let paid = c.paidAmount;
-
-      if (c.currency !== activeCurrency) {
-        if (activeCurrency === 'ARS' && c.currency === 'USD') {
-          total = total * rate;
-          paid = paid * rate;
-        } else if (activeCurrency === 'USD' && c.currency === 'ARS') {
-          total = rate > 0 ? total / rate : 0;
-          paid = rate > 0 ? paid / rate : 0;
-        }
-      }
-
+    commitments.forEach((c) => {
+      const total = convertAmount(c.totalAmount, c.currency, activeCurrency, rate);
+      const paid = convertAmount(c.paidAmount, c.currency, activeCurrency, rate);
       const remaining = Math.max(0, total - paid);
 
       if (c.type === 'debt') {
@@ -601,9 +859,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     });
 
-    const freedomPercentage = totalDebtOriginal > 0 
-      ? Math.min(100, (totalDebtPaid / totalDebtOriginal) * 100) 
-      : 100;
+    const freedomPercentage =
+      totalDebtOriginal > 0
+        ? Math.min(100, (totalDebtPaid / totalDebtOriginal) * 100)
+        : 100;
 
     return {
       totalDebtRemaining,
@@ -623,11 +882,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         selectedDate,
         datePreset,
         setDatePreset,
+        shiftMonth,
         activeCurrency,
         setActiveCurrency,
         transactionType,
         setTransactionType,
         exchangeRate,
+        refreshExchangeRate,
         transactions,
         allTransactionsForMonth,
         categories,
@@ -637,8 +898,13 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         reminders,
         activeReminders,
         lastAddedTransaction,
+        lastUndoAction,
         isUndoVisible,
+        keypadDraft,
+        openKeypad,
+        closeKeypad,
         addTransaction,
+        updateTransaction,
         undoLastTransaction,
         dismissUndo,
         deleteTransaction,
@@ -648,6 +914,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addReminder,
         payReminder,
         deleteReminder,
+        restoreBackup,
         currentTotals,
         categoryTotals,
         refreshData,

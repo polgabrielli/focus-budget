@@ -7,7 +7,7 @@ import './index.css';
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/sw.js')
+      .register('./sw.js')
       .then((reg) => {
         console.log('FocusBudget PWA Service Worker registrado con éxito:', reg.scope);
       })

@@ -1,5 +1,9 @@
 # Dependencies and build
 code/node_modules/
 code/dist/
+code/.certs/
+*.pem
+*.key
+*.crt
 .DS_Store
 *.log

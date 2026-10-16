@@ -18,6 +18,7 @@ export interface PromptGenerationData {
     balance: number;
   };
   freedomPercentage: number;
+  exchangeRate?: number;
 }
 
 /**
@@ -34,13 +35,14 @@ export function buildLocalAiPrompt(data: PromptGenerationData): string {
     reminders,
     totals,
     freedomPercentage,
+    exchangeRate = 1400,
   } = data;
 
   const symbol = currency === 'ARS' ? '$' : 'US$';
   const format = (val: number) =>
     new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(val);
 
-  // Group expenses by category
+  // Group expenses by category (converting to target currency)
   const categoryTotals: Record<string, { name: string; amount: number; count: number }> = {};
   const hijaSubTags: Record<string, number> = {};
 
@@ -50,16 +52,26 @@ export function buildLocalAiPrompt(data: PromptGenerationData): string {
       const cat = categories.find((c) => c.id === tx.categoryId);
       const name = cat?.name || 'Otro';
 
+      let convertedAmount = tx.amount;
+      const rateToUse = tx.exchangeRate || exchangeRate;
+      if (tx.currency !== currency) {
+        if (currency === 'ARS' && tx.currency === 'USD') {
+          convertedAmount = tx.amount * rateToUse;
+        } else if (currency === 'USD' && tx.currency === 'ARS') {
+          convertedAmount = rateToUse > 0 ? tx.amount / rateToUse : 0;
+        }
+      }
+
       if (!categoryTotals[tx.categoryId]) {
         categoryTotals[tx.categoryId] = { name, amount: 0, count: 0 };
       }
-      categoryTotals[tx.categoryId].amount += tx.amount;
+      categoryTotals[tx.categoryId].amount += convertedAmount;
       categoryTotals[tx.categoryId].count += 1;
 
       // Special breakdown for Hija
       if (tx.categoryId === 'cat-hija') {
         const tag = tx.subTag || 'General / Sin sub-etiqueta';
-        hijaSubTags[tag] = (hijaSubTags[tag] || 0) + tx.amount;
+        hijaSubTags[tag] = (hijaSubTags[tag] || 0) + convertedAmount;
       }
     });
 

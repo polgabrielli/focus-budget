@@ -59,6 +59,14 @@ export function prepareTabularData(
   });
 }
 
+function getLocalDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Exports transactions to CSV with UTF-8 BOM so Excel opens accented Spanish words cleanly.
  */
@@ -100,7 +108,7 @@ export function exportToCsv(
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   link.setAttribute('download', `${filenamePrefix}_${todayStr}.csv`);
   document.body.appendChild(link);
   link.click();
@@ -140,7 +148,7 @@ export function exportToExcel(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Movimientos');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   XLSX.writeFile(workbook, `${filenamePrefix}_${todayStr}.xlsx`);
 }
 
@@ -165,10 +173,11 @@ export function downloadBackupJson(backupData: {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   link.setAttribute('download', `focus_budget_backup_${todayStr}.json`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+

@@ -1,24 +1,28 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useBudget } from '../../context/BudgetContext';
-import { Calendar, RefreshCw, Sparkles } from 'lucide-react';
+import { Calendar, RefreshCw, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ReportsAndAiModal } from '../Export/ReportsAndAiModal';
 
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
 export const HeaderBar: React.FC = () => {
-  const { 
-    datePreset, 
-    setDatePreset, 
-    selectedDate, 
-    activeCurrency, 
-    setActiveCurrency, 
+  const {
+    activeView,
+    datePreset,
+    setDatePreset,
+    shiftMonth,
+    selectedDate,
+    activeCurrency,
+    setActiveCurrency,
     exchangeRate,
+    refreshExchangeRate,
   } = useBudget();
 
   const [isReportsOpen, setIsReportsOpen] = useState(false);
-  const dateInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCustomDateClick = () => {
-    dateInputRef.current?.showPicker();
-  };
+  const [isRefreshingRate, setIsRefreshingRate] = useState(false);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value) {
@@ -26,7 +30,15 @@ export const HeaderBar: React.FC = () => {
     }
   };
 
-  // Format date display for custom selector
+  const handleRefreshRate = async () => {
+    setIsRefreshingRate(true);
+    try {
+      await refreshExchangeRate();
+    } finally {
+      setTimeout(() => setIsRefreshingRate(false), 300);
+    }
+  };
+
   const formattedCustomDate = () => {
     if (datePreset === 'today') return 'Hoy';
     if (datePreset === 'yesterday') return 'Ayer';
@@ -34,117 +46,160 @@ export const HeaderBar: React.FC = () => {
     return `${day}/${month}`;
   };
 
+  const formattedMonthLabel = () => {
+    const [yearStr, monthStr] = selectedDate.split('-');
+    const monthIndex = Math.max(0, Math.min(11, parseInt(monthStr, 10) - 1));
+    return `${MONTH_NAMES[monthIndex]} ${yearStr}`;
+  };
+
   return (
     <>
-      <header className="w-full flex flex-col gap-2 pt-2 pb-1 px-4 max-w-md mx-auto">
-        {/* Top row: Brand & Currency & Rate & AI Reports button */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <span className="text-white font-bold text-xs">FB</span>
-            </div>
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-                Focus Budget
-              </h1>
+      <header className="w-full flex flex-col gap-2.5 pt-3 pb-1.5 px-4 max-w-md mx-auto">
+        {/* Top row: Brand, Exchange Rate Pill, Currency Switcher & Tools */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-base font-bold tracking-tight text-slate-100 truncate">
+              Focus Budget
+            </h1>
+
+            {exchangeRate && (
+              <button
+                type="button"
+                onClick={handleRefreshRate}
+                title={`Cotización oficial venta: $${exchangeRate.venta}. Tocá para actualizar.`}
+                aria-label={`Cotización dólar oficial ${exchangeRate.venta} pesos. Actualizar cotización`}
+                className="flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-surface hover:bg-surfaceHighlight px-2.5 py-1.5 rounded-lg border border-surfaceBorder active-press tabular-nums shrink-0"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 text-slate-400 ${isRefreshingRate ? 'animate-spin' : ''}`}
+                />
+                <span>US$ ${exchangeRate.venta}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Currency Switcher */}
+            <div
+              role="group"
+              aria-label="Moneda de visualización"
+              className="flex items-center bg-surface p-0.5 rounded-lg border border-surfaceBorder"
+            >
+              <button
+                type="button"
+                onClick={() => setActiveCurrency('ARS')}
+                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors active-press ${
+                  activeCurrency === 'ARS'
+                    ? 'bg-slate-100 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ARS
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveCurrency('USD')}
+                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors active-press ${
+                  activeCurrency === 'USD'
+                    ? 'bg-slate-100 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                USD
+              </button>
             </div>
 
-            {/* Quick trigger for Reports & AI */}
+            {/* Reports, AI & Backup trigger */}
             <button
+              type="button"
               onClick={() => setIsReportsOpen(true)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25 active-press transition-all ml-1"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 min-h-[34px] rounded-lg text-xs font-semibold bg-surface hover:bg-surfaceHighlight text-slate-200 border border-surfaceBorder active-press"
               title="Exportar a Excel/CSV, Prompt para IA y Sincronización"
+              aria-label="Abrir reportes, IA y respaldo"
             >
-              <Sparkles className="w-3 h-3 text-amber-400" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
               <span>IA & Export</span>
             </button>
           </div>
+        </div>
 
-          {/* Currency Switcher & Rate Badge */}
-          <div className="flex items-center gap-2">
-            {exchangeRate && (
-              <div 
-                title={`Cotización oficial venta: $${exchangeRate.venta}`}
-                className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400 bg-surface px-2 py-0.5 rounded-full border border-surfaceBorder"
-              >
-                <RefreshCw className="w-2.5 h-2.5 text-emerald-400 animate-spin-slow" />
-                <span>US$ = ${exchangeRate.venta}</span>
-              </div>
-            )}
-
-            <div className="flex items-center bg-surface p-0.5 rounded-full border border-surfaceBorder">
+        {/* Second row: Month Navigation & Fast Date Selector (Only on Main Dial View) */}
+        {activeView === 'dial' && (
+          <div className="flex items-center justify-between gap-2">
+            {/* Month Stepper */}
+            <div className="flex items-center bg-surface rounded-xl border border-surfaceBorder p-0.5 shrink-0">
               <button
-                onClick={() => setActiveCurrency('ARS')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-full transition-all active-press ${
-                  activeCurrency === 'ARS'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                type="button"
+                onClick={() => shiftMonth(-1)}
+                className="p-2 text-slate-400 hover:text-white rounded-lg active-press"
+                aria-label="Mes anterior"
+                title="Mes anterior"
               >
-                ARS ($)
+                <ChevronLeft className="w-4 h-4" />
               </button>
+              <span className="px-1.5 text-xs font-semibold text-slate-200 tabular-nums min-w-[92px] text-center">
+                {formattedMonthLabel()}
+              </span>
               <button
-                onClick={() => setActiveCurrency('USD')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-full transition-all active-press ${
-                  activeCurrency === 'USD'
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                type="button"
+                onClick={() => shiftMonth(1)}
+                className="p-2 text-slate-400 hover:text-white rounded-lg active-press"
+                aria-label="Mes siguiente"
+                title="Mes siguiente"
               >
-                USD ($)
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+
+            {/* 1-Touch Fast Date Selector */}
+            <div className="flex items-center bg-surface p-1 rounded-xl border border-surfaceBorder flex-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setDatePreset('today')}
+                className={`flex-1 py-1.5 min-h-[34px] text-xs font-semibold rounded-lg transition-colors active-press ${
+                  datePreset === 'today'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Hoy
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDatePreset('yesterday')}
+                className={`flex-1 py-1.5 min-h-[34px] text-xs font-semibold rounded-lg transition-colors active-press ${
+                  datePreset === 'yesterday'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Ayer
+              </button>
+
+              {/* Accessible Label wrapping native date input */}
+              <label
+                className={`flex-1 py-1.5 px-2 min-h-[34px] text-xs font-semibold rounded-lg transition-colors active-press flex items-center justify-center gap-1.5 relative cursor-pointer ${
+                  datePreset === 'custom'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span className="tabular-nums">
+                  {datePreset === 'custom' ? formattedCustomDate() : 'Fecha'}
+                </span>
+                <input
+                  type="date"
+                  aria-label="Elegir fecha específica"
+                  value={selectedDate}
+                  onChange={handleDateChange}
+                  className="sr-only"
+                />
+              </label>
+            </div>
           </div>
-        </div>
-
-        {/* Second row: 1-Touch Fast Date Selector (TDAH Frictionless) */}
-        <div className="flex items-center justify-between bg-surface/90 backdrop-blur-md p-1 rounded-xl border border-surfaceBorder/80 shadow-md">
-          <div className="flex items-center gap-1 w-full">
-            {/* HOY */}
-            <button
-              onClick={() => setDatePreset('today')}
-              className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all active-press ${
-                datePreset === 'today'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold'
-                  : 'text-slate-400 hover:text-white hover:bg-surfaceHighlight/50'
-              }`}
-            >
-              Hoy
-            </button>
-
-            {/* AYER */}
-            <button
-              onClick={() => setDatePreset('yesterday')}
-              className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all active-press ${
-                datePreset === 'yesterday'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold'
-                  : 'text-slate-400 hover:text-white hover:bg-surfaceHighlight/50'
-              }`}
-            >
-              Ayer
-            </button>
-
-            {/* CALENDARIO */}
-            <button
-              onClick={handleCustomDateClick}
-              className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-lg transition-all active-press flex items-center justify-center gap-1.5 relative ${
-                datePreset === 'custom'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold'
-                  : 'text-slate-400 hover:text-white hover:bg-surfaceHighlight/50'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>{datePreset === 'custom' ? formattedCustomDate() : 'Fecha'}</span>
-              <input
-                ref={dateInputRef}
-                type="date"
-                value={selectedDate}
-                onChange={handleDateChange}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-              />
-            </button>
-          </div>
-        </div>
+        )}
       </header>
 
       {/* Reports & AI Modal */}

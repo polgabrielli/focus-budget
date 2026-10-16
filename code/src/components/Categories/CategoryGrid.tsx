@@ -5,60 +5,108 @@ import confetti from 'canvas-confetti';
 import { type Category } from '../../types';
 
 interface CategoryGridProps {
-  amountStr: string;
-  setAmountStr: React.Dispatch<React.SetStateAction<string>>;
-  note: string;
-  setNote: React.Dispatch<React.SetStateAction<string>>;
-  setIsNoteOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  amountStr?: string;
+  setAmountStr?: React.Dispatch<React.SetStateAction<string>>;
+  note?: string;
+  setNote?: React.Dispatch<React.SetStateAction<string>>;
+  setIsNoteOpen?: React.Dispatch<React.SetStateAction<boolean>>;
+  mode?: 'inline' | 'launcher';
+  selectedCategoryId?: string | null;
+  onSelectCategory?: (cat: Category, subTag?: string | null) => void;
+  onSaved?: () => void;
 }
 
 export const CategoryGrid: React.FC<CategoryGridProps> = ({
-  amountStr,
+  amountStr = '0',
   setAmountStr,
-  note,
+  note = '',
   setNote,
   setIsNoteOpen,
+  mode = 'inline',
+  selectedCategoryId = null,
+  onSelectCategory,
+  onSaved,
 }) => {
-  const { activeCategories, addTransaction, transactionType } = useBudget();
+  const {
+    activeCategories,
+    addTransaction,
+    transactionType,
+    categoryTotals,
+    activeCurrency,
+    openKeypad,
+  } = useBudget();
+
   const [selectedHijaCat, setSelectedHijaCat] = useState<Category | null>(null);
   const [highlightError, setHighlightError] = useState(false);
 
-  const amount = parseFloat(amountStr);
+  const amount = parseFloat(amountStr.replace(',', '.')) || 0;
+  const currencySymbol = activeCurrency === 'ARS' ? '$' : 'US$';
+
+  const formatCompactAmount = (val: number) => {
+    return new Intl.NumberFormat('es-AR', {
+      maximumFractionDigits: 0,
+    }).format(val);
+  };
 
   const triggerPositiveFeedback = () => {
     try {
-      // Haptic vibration on supported devices
       if ('vibrate' in navigator) {
-        navigator.vibrate([15, 30, 15]);
+        navigator.vibrate(15);
       }
-      // Micro confetti on save
-      confetti({
-        particleCount: 25,
-        spread: 60,
-        origin: { y: 0.8 },
-        colors: ['#10B981', '#3B82F6', '#EC4899', '#F59E0B'],
-        ticks: 150,
-      });
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!prefersReducedMotion) {
+        confetti({
+          particleCount: 18,
+          spread: 50,
+          origin: { y: 0.85 },
+          colors: ['#10B981', '#6366F1', '#3B82F6'],
+          ticks: 110,
+        });
+      }
     } catch {
-      // Ignore if not supported
+      // Ignore if unsupported
     }
   };
 
   const handleCategoryPress = async (cat: Category, subTag?: string | null) => {
-    // If no amount entered, trigger feedback to enter amount
-    if (!amount || amount <= 0) {
-      setHighlightError(true);
-      setTimeout(() => setHighlightError(false), 800);
+    if (onSelectCategory) {
+      if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
+        setSelectedHijaCat(cat);
+        return;
+      }
+      onSelectCategory(cat, subTag ?? null);
+      setSelectedHijaCat(null);
       return;
     }
 
-    // If it's category 'Hija' and no subtag specified yet, prompt quick subtag selection
-    if (cat.id === 'cat-hija' && !subTag && cat.subTags && cat.subTags.length > 0) {
+    // Home Screen Launcher mode: tapping a category opens the Monefy Keypad Sheet
+    if (mode === 'launcher' && amount <= 0) {
+      if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
+        setSelectedHijaCat(cat);
+        return;
+      }
+      setSelectedHijaCat(null);
+      openKeypad({ categoryId: cat.id, subTag: subTag ?? null });
+      return;
+    }
+
+    // Inline mode: require amount > 0 first
+    if (!amount || amount <= 0) {
+      setHighlightError(true);
+      setTimeout(() => setHighlightError(false), 1200);
+      return;
+    }
+
+    // Expand sub-tags for categories with subTags (e.g., Hija)
+    if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
       setSelectedHijaCat(cat);
       return;
     }
 
-    // 2-Touch Instant Save!
     await addTransaction({
       amount,
       categoryId: cat.id,
@@ -68,53 +116,60 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
 
     triggerPositiveFeedback();
 
-    // Reset input state
-    setAmountStr('0');
-    setNote('');
-    setIsNoteOpen(false);
+    setAmountStr?.('0');
+    setNote?.('');
+    setIsNoteOpen?.(false);
     setSelectedHijaCat(null);
+    onSaved?.();
   };
 
   return (
-    <div className="w-full max-w-md mx-auto px-4 my-2">
-      {/* Category header / prompt */}
-      <div className="flex items-center justify-between mb-1.5 px-1">
-        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+    <section className="w-full max-w-md mx-auto px-4 my-2.5">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2 px-0.5">
+        <h2 className="text-xs font-semibold text-slate-300">
           {transactionType === 'expense' ? 'Categorías de Gasto' : 'Categorías de Ingreso'}
-        </span>
-        {amount > 0 ? (
-          <span className="text-xs font-medium text-emerald-400 animate-pulse">
-            Toca una categoría para guardar
+        </h2>
+
+        {mode === 'launcher' && amount <= 0 ? (
+          <span className="text-xs text-slate-400">
+            Tocá una categoría para cargar
+          </span>
+        ) : amount > 0 ? (
+          <span className="text-xs font-medium text-emerald-400">
+            Tocá una categoría para guardar
           </span>
         ) : (
           highlightError && (
-            <span className="text-xs font-medium text-amber-400 animate-bounce">
+            <span role="alert" className="text-xs font-semibold text-amber-400">
               ¡Escribe un monto primero!
             </span>
           )
         )}
       </div>
 
-      {/* Special Sub-tag selection for "Hija" */}
+      {/* Sub-tag selector drawer for Hija (or any category with subTags) */}
       {selectedHijaCat && (
-        <div className="bg-pink-950/40 border border-pink-500/40 rounded-2xl p-3 mb-3 animate-fadeIn">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-pink-300 flex items-center gap-1.5">
-              👶 Sub-etiqueta para Hija:
+        <div className="bg-surfaceElevated border border-pink-500/40 rounded-2xl p-3.5 mb-3 animate-fadeIn">
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-xs font-semibold text-pink-200">
+              Sub-etiqueta para {selectedHijaCat.name}:
             </span>
             <button
+              type="button"
               onClick={() => handleCategoryPress(selectedHijaCat, null)}
-              className="text-[11px] text-pink-300/80 hover:text-white underline"
+              className="text-xs font-medium text-slate-300 hover:text-white underline py-1 px-2"
             >
               Guardar sin sub-etiqueta
             </button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {selectedHijaCat.subTags?.map((tag) => (
               <button
                 key={tag}
+                type="button"
                 onClick={() => handleCategoryPress(selectedHijaCat, tag)}
-                className="px-3 py-1.5 bg-pink-500 text-white text-xs font-semibold rounded-xl hover:bg-pink-400 active-press shadow-sm"
+                className="px-3.5 py-2 min-h-[38px] bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-pink-100 text-xs font-semibold rounded-xl active-press"
               >
                 {tag}
               </button>
@@ -123,28 +178,31 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
         </div>
       )}
 
-      {/* Grid of Categories (4 columns on mobile) */}
+      {/* 4-column tactile category grid with Monefy monthly totals */}
       <div className="grid grid-cols-4 gap-2">
         {activeCategories.map((cat) => {
           const isDespuesVeo = cat.id === 'cat-despues-veo';
+          const isSelected = selectedCategoryId === cat.id;
+          const catTotal = categoryTotals[cat.id] || 0;
+
           return (
             <button
               key={cat.id}
+              type="button"
               onClick={() => handleCategoryPress(cat)}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border transition-all active-press relative group ${
-                isDespuesVeo
-                  ? 'bg-slate-800/80 border-dashed border-slate-500 hover:border-slate-300'
-                  : 'bg-surface/90 border-surfaceBorder hover:border-slate-500'
+              className={`flex flex-col items-center justify-between p-2.5 min-h-[84px] rounded-2xl border transition-all active-press relative group ${
+                isSelected
+                  ? 'bg-surfaceHighlight border-indigo-500 ring-1 ring-indigo-500/50'
+                  : isDespuesVeo
+                  ? 'bg-surface/80 border-dashed border-slate-600 hover:border-slate-400'
+                  : 'bg-surface border-surfaceBorder hover:border-slate-600'
               }`}
-              style={{
-                boxShadow: amount > 0 ? `0 2px 10px -2px ${cat.color}25` : undefined,
-              }}
             >
-              {/* Category Icon with custom background tint */}
+              {/* Category Icon */}
               <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center mb-1.5 transition-transform group-active:scale-90"
+                className="w-10 h-10 rounded-xl flex items-center justify-center mb-1.5 transition-transform group-active:scale-95"
                 style={{
-                  backgroundColor: `${cat.color}20`,
+                  backgroundColor: `${cat.color}1F`,
                   color: cat.color,
                 }}
               >
@@ -152,18 +210,22 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
               </div>
 
               {/* Category Name */}
-              <span className="text-[11px] font-medium text-slate-200 text-center leading-tight line-clamp-2">
+              <span className="text-xs font-medium text-slate-100 text-center leading-tight line-clamp-2">
                 {cat.name}
               </span>
 
-              {/* Visual indicator for Hija category */}
-              {cat.id === 'cat-hija' && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-pink-500 rounded-full ring-2 ring-background" />
-              )}
+              {/* Monthly accumulated total on the tile (Monefy style) */}
+              <span
+                className={`text-[11px] mt-1 tabular-nums font-medium truncate max-w-full ${
+                  catTotal > 0 ? 'text-slate-300' : 'text-slate-500'
+                }`}
+              >
+                {catTotal > 0 ? `${currencySymbol} ${formatCompactAmount(catTotal)}` : '—'}
+              </span>
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 };

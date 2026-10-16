@@ -159,4 +159,112 @@ describe('BudgetContext & Calculations', () => {
     expect(txInDb?.deletedAt).toBeDefined();
     expect(txInDb?.deletedAt).not.toBeNull();
   });
+
+  it('reverts linked commitment paidAmount and installmentsPaid when undoing a commitment payment', async () => {
+    const { result } = renderHook(() => useBudget(), { wrapper });
+
+    let commitmentId = '';
+    await act(async () => {
+      const comm = await result.current.addCommitment({
+        title: 'Préstamo Notebook',
+        counterpart: 'Banco',
+        type: 'debt',
+        totalAmount: 90000,
+        currency: 'ARS',
+        installmentsTotal: 3,
+      });
+      commitmentId = comm.id;
+    });
+
+    await act(async () => {
+      await result.current.payCommitment({
+        commitmentId,
+        amount: 30000,
+      });
+    });
+
+    await waitFor(async () => {
+      const updated = await db.commitments.get(commitmentId);
+      expect(updated?.paidAmount).toBe(30000);
+      expect(updated?.installmentsPaid).toBe(1);
+    });
+
+    // Undo the payment
+    await act(async () => {
+      await result.current.undoLastTransaction();
+    });
+
+    await waitFor(async () => {
+      const reverted = await db.commitments.get(commitmentId);
+      expect(reverted?.paidAmount).toBe(0);
+      expect(reverted?.installmentsPaid).toBe(0);
+      const txCount = await db.transactions.count();
+      expect(txCount).toBe(0);
+    });
+  });
+
+  it('reverts recurring reminder dueDate when undoing a reminder payment', async () => {
+    const { result } = renderHook(() => useBudget(), { wrapper });
+
+    let reminderId = '';
+    await act(async () => {
+      const rem = await result.current.addReminder({
+        title: 'Luz Edenor',
+        amount: 18000,
+        currency: 'ARS',
+        dueDate: '2026-10-18',
+        categoryId: 'cat-hogar',
+        isRecurring: true,
+      });
+      reminderId = rem.id;
+    });
+
+    await act(async () => {
+      await result.current.payReminder(reminderId);
+    });
+
+    await waitFor(async () => {
+      const advanced = await db.reminders.get(reminderId);
+      expect(advanced?.dueDate).toBe('2026-11-18');
+    });
+
+    // Undo the payment
+    await act(async () => {
+      await result.current.undoLastTransaction();
+    });
+
+    await waitFor(async () => {
+      const reverted = await db.reminders.get(reminderId);
+      expect(reverted?.dueDate).toBe('2026-10-18');
+      expect(reverted?.status).toBe('pending');
+    });
+  });
+
+  it('edits and reclassifies a "Después veo" transaction', async () => {
+    const { result } = renderHook(() => useBudget(), { wrapper });
+
+    let txId = '';
+    await act(async () => {
+      const tx = await result.current.addTransaction({
+        amount: 4500,
+        categoryId: 'cat-despues-veo',
+        note: 'Compra rápida',
+      });
+      txId = tx.id;
+    });
+
+    await act(async () => {
+      await result.current.updateTransaction(txId, {
+        categoryId: 'cat-super',
+        amount: 4800,
+      });
+    });
+
+    await waitFor(async () => {
+      const updated = await db.transactions.get(txId);
+      expect(updated?.categoryId).toBe('cat-super');
+      expect(updated?.amount).toBe(4800);
+    });
+  });
 });
+
