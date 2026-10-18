@@ -23,7 +23,7 @@ export interface PromptGenerationData {
 
 /**
  * Builds a structured, non-punitive Markdown prompt tailored for local LLMs
- * (LM Studio / Ollama) with coaching guidelines designed for ADHD / TDAH minds.
+ * (LM Studio / Ollama) with empathetic, zero-friction coaching guidelines.
  */
 export function buildLocalAiPrompt(data: PromptGenerationData): string {
   const {
@@ -85,11 +85,11 @@ export function buildLocalAiPrompt(data: PromptGenerationData): string {
   const activeReminders = reminders.filter((r) => r.status === 'pending');
 
   return `
-# 🧠 REVISIÓN FINANCIERA — COACHING AMABLE TDAH (FOCUS BUDGET)
+# 🧠 REVISIÓN FINANCIERA — COACHING AMABLE (FOCUS BUDGET)
 
-> **Rol para la IA:** Actúa como un mentor financiero empático, comprensivo y constructivo, especializado en psicología del TDAH.
+> **Rol para la IA:** Actúa como un mentor financiero empático, comprensivo y constructivo, especializado en bienestar financiero y hábitos sostenibles.
 > **Reglas fundamentales de respuesta:**
-> 1. **Cero culpa, cero sermones o reproches:** Las personas con TDAH lidiamos a menudo con sobrecarga cognitiva y fatiga decisional. El dinero es una herramienta para la vida, no una prueba moral.
+> 1. **Cero culpa, cero sermones o reproches:** Evita generar sobrecarga cognitiva o fatiga decisional. El dinero es una herramienta para la vida, no una prueba moral.
 > 2. **Refuerzo positivo primero:** Destaca los logros, los días de bajo gasto y el avance hacia la libertad financiera.
 > 3. **Estrategias de fricción cero:** Si sugieres mejoras, no propongas planillas complejas ni privaciones extremas. Propón pequeños "hacks" cotidianos para reducir la compra por conveniencia o impulsividad.
 > 4. **Claridad cristalina para la familia:** Asegura un resumen transparente sobre los gastos dedicados a mi hija.

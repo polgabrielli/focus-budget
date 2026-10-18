@@ -37,7 +37,7 @@ export function generateIcsContent(reminder: Reminder): string {
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Focus Budget//Vencimientos TDAH//ES',
+    'PRODID:-//Focus Budget//Vencimientos//ES',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

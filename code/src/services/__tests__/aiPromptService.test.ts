@@ -82,7 +82,7 @@ describe('aiPromptService', () => {
     },
   ];
 
-  it('generates a structured non-punitive Markdown prompt with ADHD guidelines', () => {
+  it('generates a structured non-punitive Markdown prompt with empathetic coaching guidelines', () => {
     const prompt = buildLocalAiPrompt({
       periodLabel: 'Octubre 2026',
       currency: 'ARS',
@@ -98,7 +98,7 @@ describe('aiPromptService', () => {
       freedomPercentage: 60,
     });
 
-    expect(prompt).toContain('# 🧠 REVISIÓN FINANCIERA — COACHING AMABLE TDAH');
+    expect(prompt).toContain('# 🧠 REVISIÓN FINANCIERA — COACHING AMABLE (FOCUS BUDGET)');
     expect(prompt).toContain('Cero culpa, cero sermones o reproches');
     expect(prompt).toContain('Octubre 2026');
     expect(prompt).toContain('**Ingresos Totales:** $ 200.000');
