@@ -834,27 +834,215 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await refreshData();
   };
 
-  // Restore Backup JSON
+  // Restore Backup JSON with strict schema validation and sanitization
   const restoreBackup = async (payload: {
     transactions?: Transaction[];
     categories?: Category[];
     commitments?: Commitment[];
     reminders?: Reminder[];
   }) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('El archivo de respaldo no tiene una estructura JSON válida.');
+    }
+
+    const hasRecognizedCollection =
+      Array.isArray(payload.transactions) ||
+      Array.isArray(payload.categories) ||
+      Array.isArray(payload.commitments) ||
+      Array.isArray(payload.reminders);
+
+    if (!hasRecognizedCollection) {
+      throw new Error('El respaldo no contiene colecciones válidas de Focus Budget.');
+    }
+
+    const nowIso = new Date().toISOString();
+
     if (Array.isArray(payload.categories) && payload.categories.length > 0) {
-      await db.categories.bulkPut(payload.categories);
-      const allCats = await db.categories.orderBy('sortOrder').toArray();
-      setCategories(allCats);
+      const safeCategories: Category[] = payload.categories
+        .filter(
+          (c): c is Category =>
+            Boolean(c) &&
+            typeof c === 'object' &&
+            typeof c.id === 'string' &&
+            c.id.trim().length > 0 &&
+            typeof c.name === 'string' &&
+            c.name.trim().length > 0 &&
+            (c.type === 'expense' || c.type === 'income')
+        )
+        .map((c, idx) => ({
+          id: c.id.trim().slice(0, 64),
+          name: c.name.trim().slice(0, 60),
+          type: c.type,
+          icon: typeof c.icon === 'string' && c.icon.trim() ? c.icon.trim().slice(0, 40) : 'Tag',
+          color:
+            typeof c.color === 'string' && /^#[0-9A-Fa-f]{3,8}$/.test(c.color.trim())
+              ? c.color.trim()
+              : '#6366F1',
+          description: typeof c.description === 'string' ? c.description.slice(0, 200) : '',
+          subTags: Array.isArray(c.subTags)
+            ? c.subTags
+                .filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0)
+                .map((tag) => tag.trim().slice(0, 40))
+                .slice(0, 30)
+            : undefined,
+          isSystem: Boolean(c.isSystem),
+          sortOrder:
+            typeof c.sortOrder === 'number' && Number.isFinite(c.sortOrder)
+              ? c.sortOrder
+              : idx + 1,
+        }));
+
+      if (safeCategories.length > 0) {
+        await db.categories.bulkPut(safeCategories);
+        const allCats = await db.categories.orderBy('sortOrder').toArray();
+        setCategories(allCats);
+      }
     }
+
     if (Array.isArray(payload.transactions)) {
-      await db.transactions.bulkPut(payload.transactions);
+      const safeTransactions: Transaction[] = payload.transactions
+        .filter(
+          (t): t is Transaction =>
+            Boolean(t) &&
+            typeof t === 'object' &&
+            typeof t.id === 'string' &&
+            t.id.trim().length > 0 &&
+            typeof t.amount === 'number' &&
+            Number.isFinite(t.amount) &&
+            t.amount >= 0 &&
+            typeof t.categoryId === 'string' &&
+            t.categoryId.trim().length > 0 &&
+            typeof t.date === 'string' &&
+            /^\d{4}-\d{2}-\d{2}$/.test(t.date)
+        )
+        .map((t) => ({
+          id: t.id.trim().slice(0, 64),
+          amount: t.amount,
+          type: t.type === 'income' ? 'income' : 'expense',
+          categoryId: t.categoryId.trim().slice(0, 64),
+          subTag: typeof t.subTag === 'string' ? t.subTag.trim().slice(0, 60) : null,
+          note: typeof t.note === 'string' ? t.note.slice(0, 300) : '',
+          currency: t.currency === 'USD' ? 'USD' : 'ARS',
+          exchangeRate:
+            typeof t.exchangeRate === 'number' &&
+            Number.isFinite(t.exchangeRate) &&
+            t.exchangeRate > 0
+              ? t.exchangeRate
+              : 1400,
+          date: t.date,
+          commitmentId:
+            typeof t.commitmentId === 'string' ? t.commitmentId.trim().slice(0, 64) : null,
+          reminderId: typeof t.reminderId === 'string' ? t.reminderId.trim().slice(0, 64) : null,
+          createdAt: typeof t.createdAt === 'string' ? t.createdAt : nowIso,
+          updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : nowIso,
+          deletedAt: typeof t.deletedAt === 'string' ? t.deletedAt : null,
+        }));
+
+      if (safeTransactions.length > 0) {
+        await db.transactions.bulkPut(safeTransactions);
+      }
     }
+
     if (Array.isArray(payload.commitments)) {
-      await db.commitments.bulkPut(payload.commitments);
+      const safeCommitments: Commitment[] = payload.commitments
+        .filter(
+          (c): c is Commitment =>
+            Boolean(c) &&
+            typeof c === 'object' &&
+            typeof c.id === 'string' &&
+            c.id.trim().length > 0 &&
+            typeof c.title === 'string' &&
+            c.title.trim().length > 0 &&
+            typeof c.totalAmount === 'number' &&
+            Number.isFinite(c.totalAmount) &&
+            c.totalAmount >= 0 &&
+            typeof c.paidAmount === 'number' &&
+            Number.isFinite(c.paidAmount) &&
+            c.paidAmount >= 0
+        )
+        .map((c) => ({
+          id: c.id.trim().slice(0, 64),
+          title: c.title.trim().slice(0, 100),
+          counterpart:
+            typeof c.counterpart === 'string' ? c.counterpart.trim().slice(0, 80) : '',
+          type: c.type === 'credit' ? 'credit' : 'debt',
+          totalAmount: c.totalAmount,
+          paidAmount: Math.min(c.totalAmount, c.paidAmount),
+          installmentsTotal:
+            typeof c.installmentsTotal === 'number' &&
+            Number.isFinite(c.installmentsTotal) &&
+            c.installmentsTotal > 0
+              ? Math.floor(c.installmentsTotal)
+              : undefined,
+          installmentsPaid:
+            typeof c.installmentsPaid === 'number' &&
+            Number.isFinite(c.installmentsPaid) &&
+            c.installmentsPaid >= 0
+              ? Math.floor(c.installmentsPaid)
+              : undefined,
+          currency: c.currency === 'USD' ? 'USD' : 'ARS',
+          dueDate:
+            typeof c.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.dueDate)
+              ? c.dueDate
+              : null,
+          notes: typeof c.notes === 'string' ? c.notes.slice(0, 300) : '',
+          isCompleted: Boolean(c.isCompleted) || c.paidAmount >= c.totalAmount,
+          createdAt: typeof c.createdAt === 'string' ? c.createdAt : nowIso,
+          updatedAt: typeof c.updatedAt === 'string' ? c.updatedAt : nowIso,
+          deletedAt: typeof c.deletedAt === 'string' ? c.deletedAt : null,
+        }));
+
+      if (safeCommitments.length > 0) {
+        await db.commitments.bulkPut(safeCommitments);
+      }
     }
+
     if (Array.isArray(payload.reminders)) {
-      await db.reminders.bulkPut(payload.reminders);
+      const safeReminders: Reminder[] = payload.reminders
+        .filter(
+          (r): r is Reminder =>
+            Boolean(r) &&
+            typeof r === 'object' &&
+            typeof r.id === 'string' &&
+            r.id.trim().length > 0 &&
+            typeof r.title === 'string' &&
+            r.title.trim().length > 0 &&
+            typeof r.amount === 'number' &&
+            Number.isFinite(r.amount) &&
+            r.amount >= 0 &&
+            typeof r.dueDate === 'string' &&
+            /^\d{4}-\d{2}-\d{2}$/.test(r.dueDate)
+        )
+        .map((r) => ({
+          id: r.id.trim().slice(0, 64),
+          title: r.title.trim().slice(0, 100),
+          amount: r.amount,
+          currency: r.currency === 'USD' ? 'USD' : 'ARS',
+          dueDate: r.dueDate,
+          categoryId:
+            typeof r.categoryId === 'string' && r.categoryId.trim()
+              ? r.categoryId.trim().slice(0, 64)
+              : 'cat-hogar',
+          isRecurring: Boolean(r.isRecurring),
+          recurrenceDay:
+            typeof r.recurrenceDay === 'number' &&
+            Number.isFinite(r.recurrenceDay) &&
+            r.recurrenceDay >= 1 &&
+            r.recurrenceDay <= 31
+              ? Math.floor(r.recurrenceDay)
+              : null,
+          status: r.status === 'paid' ? 'paid' : 'pending',
+          paidDate: typeof r.paidDate === 'string' ? r.paidDate : null,
+          createdAt: typeof r.createdAt === 'string' ? r.createdAt : nowIso,
+          updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : nowIso,
+          deletedAt: typeof r.deletedAt === 'string' ? r.deletedAt : null,
+        }));
+
+      if (safeReminders.length > 0) {
+        await db.reminders.bulkPut(safeReminders);
+      }
     }
+
     await refreshData();
   };
 

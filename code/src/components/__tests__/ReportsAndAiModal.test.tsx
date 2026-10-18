@@ -53,7 +53,7 @@ describe('ReportsAndAiModal Component (Fase 4)', () => {
     });
   });
 
-  it('allows switching to Wi-Fi Sync tab and displays server IP configuration', () => {
+  it('allows switching to Wi-Fi Sync tab and blocks external non-LAN URLs for security', async () => {
     render(
       <BudgetProvider>
         <ReportsAndAiModal onClose={vi.fn()} />
@@ -64,7 +64,15 @@ describe('ReportsAndAiModal Component (Fase 4)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Wi-Fi Sync/i }));
 
     expect(screen.getByText(/Sincronización Local Wi-Fi con PC/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/192\.168/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Enviar Copia a mi PC/i })).toBeInTheDocument();
+    const urlInput = screen.getByPlaceholderText(/192\.168/i);
+    expect(urlInput).toBeInTheDocument();
+
+    // Attempt to sync to a public external domain (should be blocked before network fetch)
+    fireEvent.change(urlInput, { target: { value: 'https://evil-external-site.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Enviar Copia a mi PC/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent(/solo permite direcciones de tu red local/i);
+    });
   });
 });

@@ -2,8 +2,16 @@
 code/node_modules/
 code/dist/
 code/.certs/
+code/server/backups/
+**/backups/
+*backup*.json
+docs/
 *.pem
 *.key
 *.crt
+.env
+.env.*
+__pycache__/
+*.pyc
 .DS_Store
 *.log

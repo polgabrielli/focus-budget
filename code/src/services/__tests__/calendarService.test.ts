@@ -113,5 +113,24 @@ describe('calendarService', () => {
       expect(ics).toContain('TRIGGER:-PT0M'); // Day of due date
       expect(ics).toContain('END:VCALENDAR');
     });
+
+    it('strips CRLF line breaks from reminder titles to prevent iCalendar property injection', () => {
+      const maliciousReminder: Reminder = {
+        id: 'test-789',
+        title: 'Luz\r\nATTENDEE:mailto:attacker@evil.com',
+        amount: 10000,
+        currency: 'ARS',
+        dueDate: '2026-11-10',
+        categoryId: 'cat-hogar',
+        isRecurring: false,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const ics = generateIcsContent(maliciousReminder);
+      expect(ics).not.toContain('\r\nATTENDEE:');
+      expect(ics).toContain('SUMMARY:💳 Vencimiento: Luz ATTENDEE:mailto:attacker@evil.com ($ 10000)');
+    });
   });
 });

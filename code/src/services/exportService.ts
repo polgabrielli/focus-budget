@@ -34,7 +34,25 @@ export function filterTransactionsForExport(
 }
 
 /**
- * Prepares tabular data objects with human-readable category names and currency format.
+ * Prevents Spreadsheet Formula Injection (CSV/Excel Injection - CWE-1236)
+ * by prefixing cells that begin with formula trigger characters (=, +, -, @, tab, CR)
+ * with a single quote so Excel/LibreOffice/Google Sheets treat them as literal text.
+ */
+export function sanitizeSpreadsheetCell(value: string): string {
+  if (!value) return '';
+  if (/^[\s]*[=+\-@]/.test(value) || /^[\t\r]/.test(value)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
+function sanitizeFilename(prefix: string): string {
+  return prefix.replace(/[^a-zA-Z0-9_-]/g, '_') || 'focus_budget';
+}
+
+/**
+ * Prepares tabular data objects with human-readable category names, currency format,
+ * and protection against spreadsheet formula injection.
  */
 export function prepareTabularData(
   transactions: Transaction[],
@@ -49,12 +67,12 @@ export function prepareTabularData(
     return {
       Fecha: tx.date,
       Tipo: typeLabel,
-      Categoría: catName,
-      'Sub-etiqueta': tx.subTag || '',
+      Categoría: sanitizeSpreadsheetCell(catName),
+      'Sub-etiqueta': sanitizeSpreadsheetCell(tx.subTag || ''),
       Monto: tx.amount,
       Moneda: tx.currency,
       'Cotización Dólar': tx.exchangeRate || '',
-      Nota: tx.note || '',
+      Nota: sanitizeSpreadsheetCell(tx.note || ''),
     };
   });
 }
@@ -94,7 +112,7 @@ export function exportToCsv(
       const val = row[header as keyof typeof row];
       const stringVal = val === null || val === undefined ? '' : String(val);
       // Escape quotes and wrap in quotes if contains delimiter or newline
-      if (stringVal.includes(';') || stringVal.includes('"') || stringVal.includes('\n')) {
+      if (stringVal.includes(';') || stringVal.includes('"') || stringVal.includes('\n') || stringVal.includes('\r')) {
         return `"${stringVal.replace(/"/g, '""')}"`;
       }
       return stringVal;
@@ -109,7 +127,8 @@ export function exportToCsv(
   const link = document.createElement('a');
   link.href = url;
   const todayStr = getLocalDateString();
-  link.setAttribute('download', `${filenamePrefix}_${todayStr}.csv`);
+  const safePrefix = sanitizeFilename(filenamePrefix);
+  link.setAttribute('download', `${safePrefix}_${todayStr}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -149,7 +168,8 @@ export function exportToExcel(
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Movimientos');
 
   const todayStr = getLocalDateString();
-  XLSX.writeFile(workbook, `${filenamePrefix}_${todayStr}.xlsx`);
+  const safePrefix = sanitizeFilename(filenamePrefix);
+  XLSX.writeFile(workbook, `${safePrefix}_${todayStr}.xlsx`);
 }
 
 /**

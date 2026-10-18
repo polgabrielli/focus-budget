@@ -157,12 +157,45 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
     });
   };
 
+  const MAX_BACKUP_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+  // Validates that sync URL points strictly to localhost or a private RFC1918 LAN address
+  const validateLocalSyncUrl = (rawUrl: string): string => {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl.trim());
+    } catch {
+      throw new Error('La dirección ingresada no es una URL válida (ej: http://192.168.1.50:8000).');
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('El protocolo debe ser http:// o https://');
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+    const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.local');
+    const is192 = /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host);
+    const is10 = /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+    const is172 = /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host);
+
+    if (!isLocalhost && !is192 && !is10 && !is172) {
+      throw new Error(
+        'Por seguridad, la sincronización Wi-Fi solo permite direcciones de tu red local (localhost o IP privada 192.168.x.x / 10.x.x.x).'
+      );
+    }
+
+    return parsedUrl.origin;
+  };
+
   // Backup Restore from Local JSON File
   const handleImportBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
+      if (file.size > MAX_BACKUP_FILE_BYTES) {
+        throw new Error('El archivo excede el tamaño máximo permitido de 10 MB.');
+      }
       const text = await file.text();
       const parsed = JSON.parse(text);
       await restoreBackup(parsed);
@@ -179,7 +212,8 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
   const handleSyncToPc = async () => {
     setSyncStatus('Conectando con el servidor en tu PC...');
     try {
-      localStorage.setItem('fb_pc_server_ip', pcServerIp.trim());
+      const safeOrigin = validateLocalSyncUrl(pcServerIp);
+      localStorage.setItem('fb_pc_server_ip', safeOrigin);
 
       const allTxs = await db.transactions.toArray();
       const allCats = await db.categories.toArray();
@@ -195,9 +229,12 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
         reminders: allRems,
       };
 
-      const res = await fetch(`${pcServerIp.trim()}/api/backup`, {
+      const res = await fetch(`${safeOrigin}/api/backup`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Focus-Budget-Client': 'FocusBudget-PWA',
+        },
         body: JSON.stringify(payload),
       });
 
@@ -216,8 +253,13 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
   const handleRestoreFromPc = async () => {
     setSyncStatus('Descargando última copia desde tu PC...');
     try {
-      localStorage.setItem('fb_pc_server_ip', pcServerIp.trim());
-      const res = await fetch(`${pcServerIp.trim()}/api/backup/latest`);
+      const safeOrigin = validateLocalSyncUrl(pcServerIp);
+      localStorage.setItem('fb_pc_server_ip', safeOrigin);
+      const res = await fetch(`${safeOrigin}/api/backup/latest`, {
+        headers: {
+          'X-Focus-Budget-Client': 'FocusBudget-PWA',
+        },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       await restoreBackup(data);

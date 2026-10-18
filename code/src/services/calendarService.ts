@@ -25,12 +25,26 @@ export function generateGoogleCalendarUrl(reminder: Reminder): string {
 }
 
 /**
+ * Sanitizes text fields embedded into RFC 5545 .ics files to prevent CRLF / property injection.
+ */
+export function sanitizeIcsText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .trim();
+}
+
+/**
  * Generates an RFC 5545 standard .ics file content with staggered alarms
  * (7 days before, 3 days before, 1 day before, and day of due date).
- * Compatible with Apple Calendar on iPhone 11 and Google Calendar.
+ * Compatible with Apple Calendar and Google Calendar.
  */
 export function generateIcsContent(reminder: Reminder): string {
-  const cleanDate = reminder.dueDate.replace(/-/g, '');
+  const cleanDate = reminder.dueDate.replace(/[^0-9]/g, '').slice(0, 8);
+  const safeId = reminder.id.replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeTitle = sanitizeIcsText(reminder.title);
   const currencySymbol = reminder.currency === 'ARS' ? '$' : 'US$';
   const nowStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
@@ -41,35 +55,35 @@ export function generateIcsContent(reminder: Reminder): string {
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:focusbudget-reminder-${reminder.id}@focusbudget.app`,
+    `UID:focusbudget-reminder-${safeId}@focusbudget.app`,
     `DTSTAMP:${nowStamp}`,
     `DTSTART;VALUE=DATE:${cleanDate}`,
-    `SUMMARY:💳 Vencimiento: ${reminder.title} (${currencySymbol} ${reminder.amount})`,
+    `SUMMARY:💳 Vencimiento: ${safeTitle} (${currencySymbol} ${reminder.amount})`,
     `DESCRIPTION:Recordatorio de vencimiento Focus Budget\\nMonto: ${currencySymbol} ${reminder.amount.toLocaleString('es-AR')}`,
     'STATUS:CONFIRMED',
     // Alarma 1: 7 días antes a las 9:00 AM (-P7D)
     'BEGIN:VALARM',
     'TRIGGER:-P7D',
     'ACTION:DISPLAY',
-    `DESCRIPTION:Recordatorio: ${reminder.title} vence en 7 días`,
+    `DESCRIPTION:Recordatorio: ${safeTitle} vence en 7 días`,
     'END:VALARM',
     // Alarma 2: 3 días antes (-P3D)
     'BEGIN:VALARM',
     'TRIGGER:-P3D',
     'ACTION:DISPLAY',
-    `DESCRIPTION:Atención: ${reminder.title} vence en 3 días`,
+    `DESCRIPTION:Atención: ${safeTitle} vence en 3 días`,
     'END:VALARM',
     // Alarma 3: 1 día antes (-P1D)
     'BEGIN:VALARM',
     'TRIGGER:-P1D',
     'ACTION:DISPLAY',
-    `DESCRIPTION:Urgente: ${reminder.title} vence mañana`,
+    `DESCRIPTION:Urgente: ${safeTitle} vence mañana`,
     'END:VALARM',
     // Alarma 4: Mismo día (-PT0M)
     'BEGIN:VALARM',
     'TRIGGER:-PT0M',
     'ACTION:DISPLAY',
-    `DESCRIPTION:HOY vence ${reminder.title}`,
+    `DESCRIPTION:HOY vence ${safeTitle}`,
     'END:VALARM',
     'END:VEVENT',
     'END:VCALENDAR',
@@ -85,7 +99,8 @@ export function downloadIcsFile(reminder: Reminder): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.setAttribute('download', `vencimiento_${reminder.title.toLowerCase().replace(/\s+/g, '_')}.ics`);
+  const safeSlug = reminder.title.toLowerCase().replace(/[^a-z0-9_-]+/g, '_') || 'recordatorio';
+  link.setAttribute('download', `vencimiento_${safeSlug}.ics`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

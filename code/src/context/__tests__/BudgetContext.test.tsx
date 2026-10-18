@@ -309,6 +309,56 @@ describe('BudgetContext & Calculations', () => {
       expect(updatedCat?.icon).toBe('PawPrint');
     });
   });
+
+  it('validates and sanitizes backup payloads in restoreBackup, rejecting malformed records', async () => {
+    const { result } = renderHook(() => useBudget(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.categories.length).toBeGreaterThan(0);
+    });
+
+    // Reject payload without valid collections
+    await expect(
+      result.current.restoreBackup({} as unknown as Parameters<typeof result.current.restoreBackup>[0])
+    ).rejects.toThrow(/colecciones válidas/i);
+
+    // Import mixed valid and malformed transactions
+    await act(async () => {
+      await result.current.restoreBackup({
+        transactions: [
+          {
+            id: 'valid-tx-1',
+            amount: 15000,
+            type: 'expense',
+            categoryId: 'cat-super',
+            currency: 'ARS',
+            exchangeRate: 1400,
+            date: '2026-10-18',
+            note: 'Compra válida',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          // Malformed record with NaN amount and invalid date should be filtered out
+          {
+            id: 'corrupt-tx-2',
+            amount: Number.NaN,
+            type: 'expense',
+            categoryId: 'cat-super',
+            currency: 'ARS',
+            exchangeRate: 1400,
+            date: 'invalid-date',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      });
+    });
+
+    const validInDb = await db.transactions.get('valid-tx-1');
+    const corruptInDb = await db.transactions.get('corrupt-tx-2');
+    expect(validInDb?.amount).toBe(15000);
+    expect(corruptInDb).toBeUndefined();
+  });
 });
 
 

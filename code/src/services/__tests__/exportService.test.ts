@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { 
   filterTransactionsForExport, 
-  prepareTabularData 
+  prepareTabularData,
+  sanitizeSpreadsheetCell
 } from '../exportService';
 import { type Transaction, type Category } from '../../types';
 
@@ -107,7 +108,7 @@ describe('exportService', () => {
     });
   });
 
-  describe('prepareTabularData', () => {
+  describe('prepareTabularData & Formula Injection Protection', () => {
     it('transforms raw transactions into formatted human-readable rows with category names', () => {
       const rows = prepareTabularData([mockTransactions[1]], mockCategories);
       expect(rows).toHaveLength(1);
@@ -121,6 +122,16 @@ describe('exportService', () => {
         'Cotización Dólar': 1400,
         Nota: 'Farmacity',
       });
+    });
+
+    it('neutralizes CSV/Excel formula injection payloads starting with =, +, -, or @', () => {
+      expect(sanitizeSpreadsheetCell('=HYPERLINK("http://evil.com","Click")')).toBe(
+        '\'=HYPERLINK("http://evil.com","Click")'
+      );
+      expect(sanitizeSpreadsheetCell('+cmd|\' /C calc\'!A0')).toBe("'+cmd|' /C calc'!A0");
+      expect(sanitizeSpreadsheetCell('-500 descuento')).toBe("'-500 descuento");
+      expect(sanitizeSpreadsheetCell('@SUM(A1:A10)')).toBe("'@SUM(A1:A10)");
+      expect(sanitizeSpreadsheetCell('Compra normal')).toBe('Compra normal');
     });
   });
 });
