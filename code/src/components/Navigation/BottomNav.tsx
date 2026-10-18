@@ -14,7 +14,7 @@ export const BottomNav: React.FC = () => {
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/95 backdrop-blur-md border-t border-surfaceBorder px-4 pt-1.5 pb-safe"
     >
       <div className="max-w-md mx-auto grid grid-cols-3 gap-2">
-        {/* Tab 1: Registro (Dial & Historial Monefy) */}
+        {/* Tab 1: Registro (Dial & Historial) */}
         <button
           type="button"
           onClick={() => setActiveView('dial')}

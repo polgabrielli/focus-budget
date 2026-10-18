@@ -56,7 +56,7 @@ export const RecentTransactionsList: React.FC = () => {
     return categories.filter((c) => c.type === 'expense' && c.id !== 'cat-despues-veo');
   }, [categories]);
 
-  // Group transactions by category (Monefy History style) + subTag breakdown
+  // Group transactions by category + subTag breakdown
   const categoryGroups = useMemo(() => {
     const groupsMap = new Map<
       string,
@@ -200,7 +200,7 @@ export const RecentTransactionsList: React.FC = () => {
         </div>
       )}
 
-      {/* Header bar: Title & Monefy View Switcher */}
+      {/* Header bar: Title & View Switcher */}
       <div className="flex items-center justify-between gap-2 px-0.5">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-semibold text-slate-300">
@@ -211,7 +211,7 @@ export const RecentTransactionsList: React.FC = () => {
           </span>
         </div>
 
-        {/* Scope Switcher: Por Categoría (Monefy) | Mes | Día */}
+        {/* Scope Switcher: Por Categoría | Mes | Día */}
         <div
           role="group"
           aria-label="Modo de visualización del historial"
@@ -266,7 +266,7 @@ export const RecentTransactionsList: React.FC = () => {
           </span>
         </div>
       ) : viewScope === 'categories' ? (
-        /* MONEFY-STYLE EXPANDABLE CATEGORY GROUPS */
+        /* EXPANDABLE CATEGORY GROUPS */
         <div className="flex flex-col gap-2.5">
           {categoryGroups.map((group) => {
             const cat = group.category;

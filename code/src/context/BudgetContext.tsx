@@ -216,7 +216,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
-  // Global Keypad Sheet Draft (Monefy-style category -> keypad flow)
+  // Global Keypad Sheet Draft (Category -> keypad flow)
   const [keypadDraft, setKeypadDraft] = useState<KeypadDraft>({
     isOpen: false,
     categoryId: null,

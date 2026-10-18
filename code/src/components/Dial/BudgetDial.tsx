@@ -15,7 +15,7 @@ import {
 
 type VisualMode = 'ring' | 'pace' | 'chips';
 
-export const MonefyDial: React.FC = () => {
+export const BudgetDial: React.FC = () => {
   const {
     currentTotals,
     categoryTotals,

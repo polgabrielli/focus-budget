@@ -1,7 +1,7 @@
 import React from 'react';
 import { BudgetProvider, useBudget } from './context/BudgetContext';
 import { HeaderBar } from './components/Header/HeaderBar';
-import { MonefyDial } from './components/Dial/MonefyDial';
+import { BudgetDial } from './components/Dial/BudgetDial';
 import { CategoryGrid } from './components/Categories/CategoryGrid';
 import { CategoryManagerModal } from './components/Categories/CategoryManagerModal';
 import { KeypadBottomSheet } from './components/Keypad/NumericKeypad';
@@ -20,19 +20,19 @@ const MainScreen: React.FC = () => {
       {/* Top Header Bar (Date selector & Currency toggle) */}
       <HeaderBar />
 
-      {/* View 1: Monefy Dial, Category Tiles & Expandable Category History */}
+      {/* View 1: Interactive Budget Dial, Category Tiles & Expandable Category History */}
       {activeView === 'dial' && (
         <main className="w-full flex flex-col items-center animate-fadeIn">
           {/* Radar Widget (Urgent bills alert strip) */}
           <RadarWidget />
 
-          {/* Monefy Interactive Dial */}
-          <MonefyDial />
+          {/* Interactive Budget Dial */}
+          <BudgetDial />
 
           {/* Category Grid (Tap any category to open the Keypad Bottom Sheet) */}
           <CategoryGrid mode="launcher" />
 
-          {/* Monefy-Style Expandable Category History & "Después veo" Inbox */}
+          {/* Expandable Category History & "Después veo" Inbox */}
           <RecentTransactionsList />
         </main>
       )}
@@ -51,7 +51,7 @@ const MainScreen: React.FC = () => {
         </main>
       )}
 
-      {/* Monefy-Style Bottom Sheet Keypad (for Category entry, Edit & Bill Pay) */}
+      {/* Bottom Sheet Keypad (for Category entry, Edit & Bill Pay) */}
       <KeypadBottomSheet />
 
       {/* Category & Smart Chips Customization Modal */}

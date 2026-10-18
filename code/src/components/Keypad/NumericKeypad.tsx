@@ -244,7 +244,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
 };
 
 /**
- * Monefy-Style Bottom Sheet Keypad Modal
+ * Bottom Sheet Keypad Modal
  * Opens when tapping any Category on the Home Screen, editing a transaction, or settling a bill.
  */
 export const KeypadBottomSheet: React.FC = () => {

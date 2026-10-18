@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MonefyDial } from '../Dial/MonefyDial';
+import { BudgetDial } from '../Dial/BudgetDial';
 import { BudgetProvider, useBudget } from '../../context/BudgetContext';
 import { db } from '../../db/db';
 
@@ -26,12 +26,12 @@ const TestDialWrapper: React.FC = () => {
       >
         Cargar Datos Dial
       </button>
-      <MonefyDial />
+      <BudgetDial />
     </div>
   );
 };
 
-describe('MonefyDial Component', () => {
+describe('BudgetDial Component', () => {
   beforeEach(async () => {
     await db.transactions.clear();
     await db.categories.clear();
@@ -40,7 +40,7 @@ describe('MonefyDial Component', () => {
   it('renders initial balance 0 with expense/income toggles', () => {
     render(
       <BudgetProvider>
-        <MonefyDial />
+        <BudgetDial />
       </BudgetProvider>
     );
 
@@ -69,7 +69,7 @@ describe('MonefyDial Component', () => {
   it('toggles transaction mode when clicking Gastos / Ingresos', () => {
     render(
       <BudgetProvider>
-        <MonefyDial />
+        <BudgetDial />
       </BudgetProvider>
     );
 

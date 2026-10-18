@@ -186,7 +186,7 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
         </div>
       )}
 
-      {/* 4-column tactile category grid with Monefy monthly totals */}
+      {/* 4-column tactile category grid with monthly totals */}
       <div className="grid grid-cols-4 gap-2">
         {activeCategories.map((cat) => {
           const isDespuesVeo = cat.id === 'cat-despues-veo';
@@ -222,7 +222,7 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
                 {cat.name}
               </span>
 
-              {/* Monthly accumulated total on the tile (Monefy style) */}
+              {/* Monthly accumulated total on the tile */}
               <span
                 className={`text-[11px] mt-1 tabular-nums font-medium truncate max-w-full ${
                   catTotal > 0 ? 'text-slate-300' : 'text-slate-500'
