@@ -20,6 +20,7 @@ export const RecentTransactionsList: React.FC = () => {
 
   const [viewScope, setViewScope] = useState<'categories' | 'month' | 'day'>('categories');
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const [selectedChipByCat, setSelectedChipByCat] = useState<Record<string, string | null>>({});
   const [reclassifyingId, setReclassifyingId] = useState<string | null>(null);
 
   const displayedList =
@@ -55,7 +56,7 @@ export const RecentTransactionsList: React.FC = () => {
     return categories.filter((c) => c.type === 'expense' && c.id !== 'cat-despues-veo');
   }, [categories]);
 
-  // Group transactions by category (Monefy History style)
+  // Group transactions by category (Monefy History style) + subTag breakdown
   const categoryGroups = useMemo(() => {
     const groupsMap = new Map<
       string,
@@ -63,6 +64,7 @@ export const RecentTransactionsList: React.FC = () => {
         categoryId: string;
         totalConverted: number;
         items: Transaction[];
+        chipTotals: Record<string, number>;
       }
     >();
 
@@ -79,28 +81,42 @@ export const RecentTransactionsList: React.FC = () => {
         grandTotalExpense += converted;
       }
 
+      const chipKey = tx.subTag || 'General';
       const existing = groupsMap.get(tx.categoryId);
       if (existing) {
         existing.totalConverted += converted;
         existing.items.push(tx);
+        existing.chipTotals[chipKey] = (existing.chipTotals[chipKey] || 0) + converted;
       } else {
         groupsMap.set(tx.categoryId, {
           categoryId: tx.categoryId,
           totalConverted: converted,
           items: [tx],
+          chipTotals: { [chipKey]: converted },
         });
       }
     });
 
     return Array.from(groupsMap.values())
-      .map((g) => ({
-        ...g,
-        category: categories.find((c) => c.id === g.categoryId),
-        percentage:
-          grandTotalExpense > 0
-            ? Math.min(100, Math.round((g.totalConverted / grandTotalExpense) * 100))
-            : 0,
-      }))
+      .map((g) => {
+        const chipBreakdown = Object.entries(g.chipTotals)
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, amount]) => ({
+            name,
+            amount,
+            pct: g.totalConverted > 0 ? Math.round((amount / g.totalConverted) * 100) : 0,
+          }));
+
+        return {
+          ...g,
+          category: categories.find((c) => c.id === g.categoryId),
+          percentage:
+            grandTotalExpense > 0
+              ? Math.min(100, Math.round((g.totalConverted / grandTotalExpense) * 100))
+              : 0,
+          chipBreakdown,
+        };
+      })
       .sort((a, b) => b.totalConverted - a.totalConverted);
   }, [displayedList, categories, activeCurrency, rate]);
 
@@ -325,74 +341,133 @@ export const RecentTransactionsList: React.FC = () => {
                   )}
                 </button>
 
-                {/* Individual Movements inside Category */}
+                {/* Individual Movements inside Category + Visual Chip Breakdown */}
                 {!isCollapsed && (
-                  <div className="border-t border-surfaceBorder/70 divide-y divide-surfaceBorder/50 bg-background/40">
-                    {group.items.map((tx) => {
-                      const isIncome = tx.type === 'income';
-                      const isHija = tx.categoryId === 'cat-hija';
+                  <div className="border-t border-surfaceBorder/70 bg-background/40">
+                    {/* Visual Chip Breakdown Bar & 1-Tap Filter Pills */}
+                    {group.chipBreakdown.some((c) => c.name !== 'General') && (
+                      <div className="px-3.5 py-2.5 border-b border-surfaceBorder/60 bg-surfaceElevated/40 flex flex-col gap-2">
+                        {/* Segmented Proportional Bar */}
+                        <div className="w-full h-1.5 bg-background rounded-full overflow-hidden flex gap-0.5">
+                          {group.chipBreakdown.map((chip, idx) => {
+                            const opacities = ['FF', 'BF', '8C', '66', '4D'];
+                            const alpha = opacities[idx % opacities.length];
+                            return (
+                              <div
+                                key={chip.name}
+                                className="h-full first:rounded-l-full last:rounded-r-full transition-all duration-300"
+                                style={{
+                                  width: `${Math.max(4, chip.pct)}%`,
+                                  backgroundColor: `${color}${alpha}`,
+                                }}
+                                title={`${chip.name}: ${chip.pct}%`}
+                              />
+                            );
+                          })}
+                        </div>
 
-                      return (
-                        <div
-                          key={tx.id}
-                          className="px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-surface/60 transition-colors"
-                        >
-                          <div className="flex flex-col min-w-0 gap-0.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs text-slate-400 tabular-nums">
-                                {tx.date}
-                              </span>
-                              {tx.subTag && (
+                        {/* Interactive 1-Tap Chip Filter Pills */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {group.chipBreakdown.map((chip) => {
+                            const activeChip = selectedChipByCat[group.categoryId] || null;
+                            const isChipSelected = activeChip === chip.name;
+                            return (
+                              <button
+                                key={chip.name}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedChipByCat((prev) => ({
+                                    ...prev,
+                                    [group.categoryId]: isChipSelected ? null : chip.name,
+                                  }))
+                                }
+                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-all active-press tabular-nums ${
+                                  isChipSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                                    : 'bg-surface text-slate-300 border-surfaceBorder hover:text-white'
+                                }`}
+                              >
+                                {`${chip.name} · ${chip.pct}% (${activeSymbol}${formatSummaryAmount(chip.amount)})`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="divide-y divide-surfaceBorder/50">
+                      {group.items
+                        .filter((tx) => {
+                          const activeChip = selectedChipByCat[group.categoryId];
+                          if (!activeChip) return true;
+                          return (tx.subTag || 'General') === activeChip;
+                        })
+                        .map((tx) => {
+                          const isIncome = tx.type === 'income';
+                          const isHija = tx.categoryId === 'cat-hija';
+
+                          return (
+                            <div
+                              key={tx.id}
+                              className="px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-surface/60 transition-colors"
+                            >
+                              <div className="flex flex-col min-w-0 gap-0.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs text-slate-400 tabular-nums">
+                                    {tx.date}
+                                  </span>
+                                  {tx.subTag && (
+                                    <span
+                                      className={`text-xs px-2 py-0.5 rounded-md font-medium shrink-0 ${
+                                        isHija
+                                          ? 'bg-pink-500/20 text-pink-200 border border-pink-500/30'
+                                          : 'bg-surfaceHighlight text-slate-300 border border-surfaceBorder'
+                                      }`}
+                                    >
+                                      {tx.subTag}
+                                    </span>
+                                  )}
+                                  {tx.note && (
+                                    <span className="text-xs text-slate-200 truncate">
+                                      "{tx.note}"
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <span
-                                  className={`text-xs px-2 py-0.5 rounded-md font-medium shrink-0 ${
-                                    isHija
-                                      ? 'bg-pink-500/20 text-pink-200 border border-pink-500/30'
-                                      : 'bg-surfaceHighlight text-slate-300 border border-surfaceBorder'
+                                  className={`text-sm font-bold font-mono tabular-nums mr-1 ${
+                                    isIncome ? 'text-emerald-400' : 'text-slate-100'
                                   }`}
                                 >
-                                  {tx.subTag}
+                                  {formatAmount(tx)}
                                 </span>
-                              )}
-                              {tx.note && (
-                                <span className="text-xs text-slate-200 truncate">
-                                  "{tx.note}"
-                                </span>
-                              )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => openKeypad({ editingTransaction: tx })}
+                                  className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-slate-100 rounded-lg transition-colors active-press"
+                                  title="Editar registro"
+                                  aria-label="Editar registro"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => deleteTransaction(tx.id)}
+                                  className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-rose-400 rounded-lg transition-colors active-press"
+                                  title="Eliminar registro"
+                                  aria-label="Eliminar registro"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span
-                              className={`text-sm font-bold font-mono tabular-nums mr-1 ${
-                                isIncome ? 'text-emerald-400' : 'text-slate-100'
-                              }`}
-                            >
-                              {formatAmount(tx)}
-                            </span>
-
-                            <button
-                              type="button"
-                              onClick={() => openKeypad({ editingTransaction: tx })}
-                              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-slate-100 rounded-lg transition-colors active-press"
-                              title="Editar registro"
-                              aria-label="Editar registro"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => deleteTransaction(tx.id)}
-                              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-rose-400 rounded-lg transition-colors active-press"
-                              title="Eliminar registro"
-                              aria-label="Eliminar registro"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                    </div>
                   </div>
                 )}
               </div>

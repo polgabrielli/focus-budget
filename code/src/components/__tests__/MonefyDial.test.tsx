@@ -81,4 +81,28 @@ describe('MonefyDial Component', () => {
     fireEvent.click(incomeBtn!);
     expect(incomeBtn?.className).toContain('bg-emerald-500/20');
   });
+
+  it('switches between the 3 visual modes: Anillo, Ritmo, and Top Chips', async () => {
+    render(
+      <BudgetProvider>
+        <TestDialWrapper />
+      </BudgetProvider>
+    );
+
+    fireEvent.click(screen.getByText('Cargar Datos Dial'));
+
+    // Switch to "Ritmo" mode
+    fireEvent.click(screen.getByRole('tab', { name: /Ritmo/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Plata vs\. Calendario/i)).toBeInTheDocument();
+      expect(screen.getByText(/Pulso por Semana del Mes/i)).toBeInTheDocument();
+    });
+
+    // Switch to "Top Chips" mode
+    fireEvent.click(screen.getByRole('tab', { name: /Top Chips/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Top 5 Gastos por Chip \/ Rubro/i)).toBeInTheDocument();
+    });
+  });
 });
+
