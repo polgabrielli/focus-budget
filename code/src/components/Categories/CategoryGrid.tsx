@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Settings2 } from 'lucide-react';
 import { useBudget } from '../../context/BudgetContext';
 import { CategoryIcon } from '../Common/CategoryIcon';
 import confetti from 'canvas-confetti';
@@ -34,6 +35,7 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
     categoryTotals,
     activeCurrency,
     openKeypad,
+    openCategoryManager,
   } = useBudget();
 
   const [selectedHijaCat, setSelectedHijaCat] = useState<Category | null>(null);
@@ -74,21 +76,13 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
 
   const handleCategoryPress = async (cat: Category, subTag?: string | null) => {
     if (onSelectCategory) {
-      if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
-        setSelectedHijaCat(cat);
-        return;
-      }
       onSelectCategory(cat, subTag ?? null);
       setSelectedHijaCat(null);
       return;
     }
 
-    // Home Screen Launcher mode: tapping a category opens the Monefy Keypad Sheet
+    // Home Screen Launcher mode: tapping any category opens the Keypad Sheet directly in 1 touch
     if (mode === 'launcher' && amount <= 0) {
-      if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
-        setSelectedHijaCat(cat);
-        return;
-      }
       setSelectedHijaCat(null);
       openKeypad({ categoryId: cat.id, subTag: subTag ?? null });
       return;
@@ -101,8 +95,8 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
       return;
     }
 
-    // Expand sub-tags for categories with subTags (e.g., Hija)
-    if (cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
+    // Expand sub-tags in inline mode for cat-hija
+    if (cat.id === 'cat-hija' && cat.subTags && cat.subTags.length > 0 && subTag === undefined) {
       setSelectedHijaCat(cat);
       return;
     }
@@ -126,14 +120,28 @@ export const CategoryGrid: React.FC<CategoryGridProps> = ({
   return (
     <section className="w-full max-w-md mx-auto px-4 my-2.5">
       {/* Header row */}
-      <div className="flex items-center justify-between mb-2 px-0.5">
-        <h2 className="text-xs font-semibold text-slate-300">
-          {transactionType === 'expense' ? 'Categorías de Gasto' : 'Categorías de Ingreso'}
-        </h2>
+      <div className="flex items-center justify-between mb-2 px-0.5 gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xs font-semibold text-slate-300">
+            {transactionType === 'expense' ? 'Categorías de Gasto' : 'Categorías de Ingreso'}
+          </h2>
+          { !onSelectCategory && (
+            <button
+              type="button"
+              onClick={() => openCategoryManager()}
+              className="flex items-center gap-1 px-2 py-0.5 min-h-[24px] rounded-lg bg-surface hover:bg-surfaceHighlight border border-surfaceBorder text-[11px] font-medium text-indigo-300 hover:text-white transition-colors active-press"
+              title="Editar nombres, íconos, colores y chips de las categorías"
+              aria-label="Personalizar categorías"
+            >
+              <Settings2 className="w-3 h-3" />
+              <span>Personalizar</span>
+            </button>
+          )}
+        </div>
 
         {mode === 'launcher' && amount <= 0 ? (
-          <span className="text-xs text-slate-400">
-            Tocá una categoría para cargar
+          <span className="text-xs text-slate-400 truncate">
+            Tocá una para cargar
           </span>
         ) : amount > 0 ? (
           <span className="text-xs font-medium text-emerald-400">

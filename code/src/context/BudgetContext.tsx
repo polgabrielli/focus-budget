@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { db, seedCategories } from '../db/db';
+import { db, seedCategories, INITIAL_CATEGORIES } from '../db/db';
 import { 
   type Transaction, 
   type Category, 
@@ -68,6 +68,17 @@ interface BudgetContextType {
   keypadDraft: KeypadDraft;
   openKeypad: (draft?: Partial<Omit<KeypadDraft, 'isOpen'>>) => void;
   closeKeypad: () => void;
+  isCategoryManagerOpen: boolean;
+  editingCategoryId: string | null;
+  openCategoryManager: (categoryId?: string | null) => void;
+  closeCategoryManager: () => void;
+  updateCategory: (
+    id: string,
+    updates: Partial<Pick<Category, 'name' | 'icon' | 'color' | 'subTags' | 'description'>>
+  ) => Promise<void>;
+  addSubTagToCategory: (categoryId: string, newTag: string) => Promise<void>;
+  removeSubTagFromCategory: (categoryId: string, tagToRemove: string) => Promise<void>;
+  resetCategoriesToDefault: () => Promise<void>;
   addTransaction: (params: {
     amount: number;
     categoryId: string;
@@ -216,6 +227,70 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     reminderToPay: null,
   });
 
+  // Category Manager Modal state
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState<boolean>(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+
+  const openCategoryManager = useCallback((categoryId?: string | null) => {
+    setEditingCategoryId(categoryId ?? null);
+    setIsCategoryManagerOpen(true);
+  }, []);
+
+  const closeCategoryManager = useCallback(() => {
+    setIsCategoryManagerOpen(false);
+    setEditingCategoryId(null);
+  }, []);
+
+  const reloadCategoriesFromDb = useCallback(async () => {
+    const allCats = await db.categories.orderBy('sortOrder').toArray();
+    setCategories(allCats);
+  }, []);
+
+  const updateCategory = useCallback(
+    async (
+      id: string,
+      updates: Partial<Pick<Category, 'name' | 'icon' | 'color' | 'subTags' | 'description'>>
+    ) => {
+      await db.categories.update(id, updates);
+      await reloadCategoriesFromDb();
+    },
+    [reloadCategoriesFromDb]
+  );
+
+  const addSubTagToCategory = useCallback(
+    async (categoryId: string, newTag: string) => {
+      const trimmed = newTag.trim();
+      if (!trimmed) return;
+      const existing = await db.categories.get(categoryId);
+      if (!existing) return;
+      const currentTags = existing.subTags || [];
+      if (currentTags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) return;
+      await db.categories.update(categoryId, {
+        subTags: [...currentTags, trimmed],
+      });
+      await reloadCategoriesFromDb();
+    },
+    [reloadCategoriesFromDb]
+  );
+
+  const removeSubTagFromCategory = useCallback(
+    async (categoryId: string, tagToRemove: string) => {
+      const existing = await db.categories.get(categoryId);
+      if (!existing || !existing.subTags) return;
+      await db.categories.update(categoryId, {
+        subTags: existing.subTags.filter((t) => t !== tagToRemove),
+      });
+      await reloadCategoriesFromDb();
+    },
+    [reloadCategoriesFromDb]
+  );
+
+  const resetCategoriesToDefault = useCallback(async () => {
+    await db.categories.clear();
+    await db.categories.bulkAdd(INITIAL_CATEGORIES);
+    await reloadCategoriesFromDb();
+  }, [reloadCategoriesFromDb]);
+
   // Undo mechanism (5-second window) with full side-effect reversal
   const [lastAddedTransaction, setLastAddedTransaction] = useState<Transaction | null>(null);
   const [lastUndoAction, setLastUndoAction] = useState<'add' | 'delete'>('add');
@@ -268,15 +343,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const initApp = useCallback(async () => {
     try {
       await seedCategories();
-      const allCats = await db.categories.orderBy('sortOrder').toArray();
-      setCategories(allCats);
+      await reloadCategoriesFromDb();
 
       const rate = await fetchExchangeRate();
       setExchangeRate(rate);
     } catch (err) {
       console.error('Error initializing FocusBudget:', err);
     }
-  }, []);
+  }, [reloadCategoriesFromDb]);
 
   // Keep "Today" fresh when returning from background on iOS PWA
   useEffect(() => {
@@ -909,6 +983,14 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         keypadDraft,
         openKeypad,
         closeKeypad,
+        isCategoryManagerOpen,
+        editingCategoryId,
+        openCategoryManager,
+        closeCategoryManager,
+        updateCategory,
+        addSubTagToCategory,
+        removeSubTagFromCategory,
+        resetCategoriesToDefault,
         addTransaction,
         updateTransaction,
         undoLastTransaction,

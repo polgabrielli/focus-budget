@@ -3,6 +3,7 @@ import { BudgetProvider, useBudget } from './context/BudgetContext';
 import { HeaderBar } from './components/Header/HeaderBar';
 import { MonefyDial } from './components/Dial/MonefyDial';
 import { CategoryGrid } from './components/Categories/CategoryGrid';
+import { CategoryManagerModal } from './components/Categories/CategoryManagerModal';
 import { KeypadBottomSheet } from './components/Keypad/NumericKeypad';
 import { RecentTransactionsList } from './components/Transactions/RecentTransactionsList';
 import { CommitmentsView } from './components/Commitments/CommitmentsView';
@@ -52,6 +53,9 @@ const MainScreen: React.FC = () => {
 
       {/* Monefy-Style Bottom Sheet Keypad (for Category entry, Edit & Bill Pay) */}
       <KeypadBottomSheet />
+
+      {/* Category & Smart Chips Customization Modal */}
+      <CategoryManagerModal />
 
       {/* Floating 5-Second Undo Toast (Positioned safely above BottomNav) */}
       <UndoToast />

@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Delete, FileText, X, Check, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Delete, FileText, X, Check, RefreshCw, Plus } from 'lucide-react';
 import { useBudget } from '../../context/BudgetContext';
 import { CategoryIcon } from '../Common/CategoryIcon';
 import { type CurrencyCode, type UsdRateType } from '../../types';
@@ -14,6 +14,7 @@ interface NumericKeypadProps {
   setIsNoteOpen: React.Dispatch<React.SetStateAction<boolean>>;
   currency?: CurrencyCode;
   conversionPreview?: string | null;
+  recentNotes?: string[];
   onSubmit?: () => void;
 }
 
@@ -26,6 +27,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
   setIsNoteOpen,
   currency,
   conversionPreview,
+  recentNotes = [],
   onSubmit,
 }) => {
   const { activeCurrency } = useBudget();
@@ -102,8 +104,8 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
 
   return (
     <div className="w-full max-w-md mx-auto flex flex-col gap-2.5">
-      {/* Amount Display & Note Trigger */}
-      <div className="bg-surfaceElevated border border-surfaceBorder rounded-2xl p-3.5 flex flex-col gap-2">
+      {/* Amount Display & Always-Accessible Note Box */}
+      <div className="bg-surfaceElevated border border-surfaceBorder rounded-2xl p-3 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-col min-w-0">
             <div className="flex items-baseline gap-1.5 overflow-hidden">
@@ -150,17 +152,48 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
           </div>
         </div>
 
-        {/* Optional Note input row */}
+        {/* Optional Note input row + 1-tap recent note suggestions (No autoFocus so iOS keyboard only opens when tapped) */}
         {isNoteOpen && (
-          <div className="pt-2 border-t border-surfaceBorder/80 flex items-center gap-2 animate-fadeIn">
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Nota opcional (ej: Carrefour, Farmacity)..."
-              className="w-full bg-background border border-surfaceBorder rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
-              autoFocus
-            />
+          <div className="pt-2 border-t border-surfaceBorder/80 flex flex-col gap-1.5 animate-fadeIn">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Nota opcional (ej: Carrefour, Farmacity)..."
+                className="w-full bg-background border border-surfaceBorder rounded-xl pl-3.5 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+              />
+              {note && (
+                <button
+                  type="button"
+                  onClick={() => setNote('')}
+                  aria-label="Limpiar nota"
+                  className="absolute right-2 p-1 text-slate-400 hover:text-white rounded-md"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {recentNotes.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pt-0.5">
+                <span className="text-[11px] text-slate-400 shrink-0">Recientes:</span>
+                {recentNotes.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setNote(note === item ? '' : item)}
+                    className={`px-2 py-0.5 min-h-[24px] rounded-lg text-[11px] font-medium shrink-0 border transition-colors active-press ${
+                      note === item
+                        ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500/50'
+                        : 'bg-background/80 text-slate-300 border-surfaceBorder hover:text-white'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -220,8 +253,10 @@ export const KeypadBottomSheet: React.FC = () => {
     closeKeypad,
     categories,
     activeCategories,
+    allTransactionsForMonth,
     addTransaction,
     updateTransaction,
+    addSubTagToCategory,
     payReminder,
     selectedDate,
     exchangeRate,
@@ -230,13 +265,15 @@ export const KeypadBottomSheet: React.FC = () => {
 
   const [amountStr, setAmountStr] = useState<string>('0');
   const [note, setNote] = useState<string>('');
-  const [isNoteOpen, setIsNoteOpen] = useState<boolean>(false);
+  const [isNoteOpen, setIsNoteOpen] = useState<boolean>(true);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [selectedSubTag, setSelectedSubTag] = useState<string | null>(null);
   const [entryDate, setEntryDate] = useState<string>(selectedDate);
   const [currency, setCurrency] = useState<CurrencyCode>('ARS');
   const [rateType, setRateType] = useState<UsdRateType>('mep');
   const [isRefreshingRate, setIsRefreshingRate] = useState<boolean>(false);
+  const [isAddingChip, setIsAddingChip] = useState<boolean>(false);
+  const [newChipText, setNewChipText] = useState<string>('');
 
   const mepRate = exchangeRate?.mep?.venta || exchangeRate?.venta || 1400;
   const oficialRate = exchangeRate?.oficial?.venta || 1400;
@@ -253,11 +290,13 @@ export const KeypadBottomSheet: React.FC = () => {
 
   useEffect(() => {
     if (keypadDraft.isOpen) {
+      setIsAddingChip(false);
+      setNewChipText('');
       if (keypadDraft.editingTransaction) {
         const tx = keypadDraft.editingTransaction;
         setAmountStr(String(tx.amount));
         setNote(tx.note || '');
-        setIsNoteOpen(Boolean(tx.note));
+        setIsNoteOpen(true);
         setSelectedCatId(tx.categoryId);
         setSelectedSubTag(tx.subTag || null);
         setEntryDate(tx.date);
@@ -274,7 +313,7 @@ export const KeypadBottomSheet: React.FC = () => {
       } else {
         setAmountStr(keypadDraft.initialAmount || '0');
         setNote(keypadDraft.initialNote || '');
-        setIsNoteOpen(Boolean(keypadDraft.initialNote));
+        setIsNoteOpen(true);
         setSelectedCatId(keypadDraft.categoryId || activeCategories[0]?.id || null);
         setSelectedSubTag(keypadDraft.subTag || null);
         setEntryDate(selectedDate);
@@ -292,10 +331,46 @@ export const KeypadBottomSheet: React.FC = () => {
     return () => window.removeEventListener('keydown', onEsc);
   }, [keypadDraft.isOpen, closeKeypad]);
 
+  const currentCategory = categories.find((c) => c.id === selectedCatId) || activeCategories[0];
+
+  // Sort sub-tags (chips) by frequency of use in current month so most-used chips appear first
+  const sortedSubTags = useMemo(() => {
+    if (!currentCategory?.subTags || currentCategory.subTags.length === 0) return [];
+    const counts: Record<string, number> = {};
+    allTransactionsForMonth.forEach((tx) => {
+      if (tx.categoryId === currentCategory.id && tx.subTag) {
+        counts[tx.subTag] = (counts[tx.subTag] || 0) + 1;
+      }
+    });
+    return [...currentCategory.subTags].sort((a, b) => {
+      const diff = (counts[b] || 0) - (counts[a] || 0);
+      if (diff !== 0) return diff;
+      return currentCategory.subTags!.indexOf(a) - currentCategory.subTags!.indexOf(b);
+    });
+  }, [currentCategory, allTransactionsForMonth]);
+
+  // Last 3 unique notes for the current category for 1-tap autocomplete
+  const recentNotes = useMemo(() => {
+    if (!currentCategory) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const tx of allTransactionsForMonth) {
+      if (tx.categoryId !== currentCategory.id) continue;
+      const trimmed = tx.note?.trim();
+      if (!trimmed || trimmed.startsWith('Pago de servicio:')) continue;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(trimmed);
+        if (result.length >= 3) break;
+      }
+    }
+    return result;
+  }, [currentCategory, allTransactionsForMonth]);
+
   if (!keypadDraft.isOpen) return null;
 
   const parsedAmount = parseFloat(amountStr.replace(',', '.')) || 0;
-  const currentCategory = categories.find((c) => c.id === selectedCatId) || activeCategories[0];
 
   let convertedPreview: string | null = null;
   if (parsedAmount > 0) {
@@ -310,6 +385,15 @@ export const KeypadBottomSheet: React.FC = () => {
       convertedPreview = `≈ US$ ${convertedUsd} (${rateType === 'oficial' ? 'Oficial' : 'MEP'}: $${activeRate.toLocaleString('es-AR')})`;
     }
   }
+
+  const handleAddCustomChip = async () => {
+    const trimmed = newChipText.trim();
+    if (!trimmed || !currentCategory) return;
+    await addSubTagToCategory(currentCategory.id, trimmed);
+    setSelectedSubTag(trimmed);
+    setNewChipText('');
+    setIsAddingChip(false);
+  };
 
   const handleConfirm = async () => {
     if (parsedAmount <= 0 || !currentCategory) return;
@@ -361,6 +445,10 @@ export const KeypadBottomSheet: React.FC = () => {
   };
 
   const symbol = currency === 'ARS' ? '$' : 'US$';
+  const showChipsSection =
+    !keypadDraft.reminderToPay &&
+    currentCategory &&
+    currentCategory.id !== 'cat-despues-veo';
 
   return (
     <div
@@ -378,7 +466,7 @@ export const KeypadBottomSheet: React.FC = () => {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface border-t sm:border border-surfaceBorder rounded-t-3xl sm:rounded-3xl w-full max-w-md p-4 pb-safe shadow-2xl flex flex-col gap-3 animate-sheetUp max-h-[92vh] overflow-y-auto"
+        className="bg-surface border-t sm:border border-surfaceBorder rounded-t-3xl sm:rounded-3xl w-full max-w-md p-4 pb-safe shadow-2xl flex flex-col gap-2.5 animate-sheetUp max-h-[94vh] overflow-y-auto"
       >
         {/* Top bar: Category badge & Close */}
         <div className="flex items-center justify-between gap-2 pb-2 border-b border-surfaceBorder/70">
@@ -403,7 +491,7 @@ export const KeypadBottomSheet: React.FC = () => {
                   : currentCategory?.name || 'Nuevo movimiento'}
               </span>
               <span className="text-xs text-slate-400 truncate">
-                {selectedSubTag ? `Sub-etiqueta: ${selectedSubTag}` : entryDate}
+                {selectedSubTag ? `Chip: ${selectedSubTag}` : entryDate}
               </span>
             </div>
           </div>
@@ -492,7 +580,7 @@ export const KeypadBottomSheet: React.FC = () => {
 
         {/* Category switcher pills (when adding or editing) */}
         {!keypadDraft.reminderToPay && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
             {activeCategories.map((cat) => {
               const isSelected = currentCategory?.id === cat.id;
               return (
@@ -501,9 +589,10 @@ export const KeypadBottomSheet: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSelectedCatId(cat.id);
-                    if (cat.id !== 'cat-hija') setSelectedSubTag(null);
+                    setSelectedSubTag(null);
+                    setIsAddingChip(false);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-xl text-xs font-semibold shrink-0 border transition-colors active-press ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 min-h-[34px] rounded-xl text-xs font-semibold shrink-0 border transition-colors active-press ${
                     isSelected
                       ? 'bg-indigo-600/25 text-indigo-200 border-indigo-500/50'
                       : 'bg-surfaceElevated text-slate-300 border-surfaceBorder hover:text-white'
@@ -520,23 +609,66 @@ export const KeypadBottomSheet: React.FC = () => {
           </div>
         )}
 
-        {/* Sub-tag pills if current category has subTags (e.g. Hija) */}
-        {currentCategory?.subTags && currentCategory.subTags.length > 0 && !keypadDraft.reminderToPay && (
-          <div className="flex flex-wrap gap-1.5 bg-surfaceElevated p-2.5 rounded-xl border border-surfaceBorder">
-            {currentCategory.subTags.map((tag) => (
+        {/* Smart Chips (1-tap subTags sorted by frequency + "+ Agregar" button) */}
+        {showChipsSection && (
+          <div className="flex flex-col gap-2 bg-surfaceElevated p-2 rounded-xl border border-surfaceBorder">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {sortedSubTags.map((tag) => {
+                const isSelected = selectedSubTag === tag;
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setSelectedSubTag(isSelected ? null : tag)}
+                    className={`px-2.5 py-1 min-h-[30px] rounded-lg text-xs font-semibold transition-colors active-press ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-surfaceHighlight text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+
               <button
-                key={tag}
                 type="button"
-                onClick={() => setSelectedSubTag(selectedSubTag === tag ? null : tag)}
-                className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-semibold transition-colors active-press ${
-                  selectedSubTag === tag
-                    ? 'bg-pink-500 text-white'
-                    : 'bg-surfaceHighlight text-slate-300 hover:text-white'
-                }`}
+                onClick={() => setIsAddingChip(!isAddingChip)}
+                className="px-2.5 py-1 min-h-[30px] rounded-lg text-xs font-semibold border border-dashed border-slate-600 text-indigo-300 hover:text-white hover:border-indigo-400 flex items-center gap-1 transition-colors active-press"
+                title="Agregar nuevo chip a esta categoría"
               >
-                {tag}
+                <Plus className="w-3.5 h-3.5" />
+                <span>Agregar</span>
               </button>
-            ))}
+            </div>
+
+            {isAddingChip && (
+              <div className="flex items-center gap-1.5 pt-1 border-t border-surfaceBorder/70 animate-fadeIn">
+                <input
+                  type="text"
+                  value={newChipText}
+                  onChange={(e) => setNewChipText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleAddCustomChip();
+                    }
+                  }}
+                  placeholder={`Nuevo chip para ${currentCategory.name}...`}
+                  className="flex-1 bg-background border border-surfaceBorder rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomChip}
+                  disabled={!newChipText.trim()}
+                  className="px-3 py-1.5 min-h-[30px] rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-surfaceHighlight disabled:text-slate-500 text-white text-xs font-bold transition-colors active-press"
+                >
+                  Guardar
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -550,6 +682,7 @@ export const KeypadBottomSheet: React.FC = () => {
           setIsNoteOpen={setIsNoteOpen}
           currency={currency}
           conversionPreview={convertedPreview}
+          recentNotes={recentNotes}
           onSubmit={handleConfirm}
         />
 
@@ -577,3 +710,4 @@ export const KeypadBottomSheet: React.FC = () => {
     </div>
   );
 };
+

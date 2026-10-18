@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useBudget } from '../../context/BudgetContext';
+import { CategoryIcon } from '../Common/CategoryIcon';
 import {
   exportToCsv,
   exportToExcel,
@@ -20,10 +21,10 @@ import {
   Download,
   Upload,
   Wifi,
-  Baby,
   Calendar,
   Layers,
   FolderDown,
+  Settings2,
 } from 'lucide-react';
 
 interface ReportsAndAiModalProps {
@@ -42,6 +43,7 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
     selectedDate,
     exchangeRate,
     restoreBackup,
+    openCategoryManager,
   } = useBudget();
 
   const [activeTab, setActiveTab] = useState<'export' | 'ai' | 'backup'>('export');
@@ -55,6 +57,9 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentMonthStr = selectedDate.substring(0, 7);
+  const featuredCat = categories.find((c) => c.id === 'cat-hija');
+  const featuredCatName = featuredCat?.name || 'Hija';
+  const featuredCatIcon = featuredCat?.icon || 'Baby';
 
   // Load full transaction history from IndexedDB so "Histórico" exports all months
   useEffect(() => {
@@ -246,14 +251,28 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
               <p className="text-xs text-slate-400">Exportación y modelos locales</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl active-press"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                openCategoryManager();
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 min-h-[34px] rounded-xl bg-surfaceElevated hover:bg-surfaceHighlight border border-surfaceBorder text-xs font-semibold text-indigo-300 hover:text-white active-press"
+              title="Personalizar nombres, íconos y chips de las categorías"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>Categorías</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cerrar"
+              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-white rounded-xl active-press"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Buttons */}
@@ -328,8 +347,8 @@ export const ReportsAndAiModal: React.FC<ReportsAndAiModalProps> = ({ onClose })
                       : 'bg-surfaceElevated text-slate-400 border-surfaceBorder hover:text-white'
                   }`}
                 >
-                  <Baby className="w-4 h-4 text-pink-400" />
-                  <span>Solo Hija</span>
+                  <CategoryIcon name={featuredCatIcon} className="w-4 h-4 text-pink-400" />
+                  <span className="truncate max-w-full">Solo {featuredCatName}</span>
                 </button>
 
                 <button

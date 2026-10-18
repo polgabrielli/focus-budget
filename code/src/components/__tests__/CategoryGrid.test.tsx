@@ -34,10 +34,10 @@ describe('CategoryGrid Component (2-Touch Rule & Anti-Parálisis)', () => {
     render(<CategoryGridWrapper initialAmount="0" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Súper y Casa')).toBeInTheDocument();
+      expect(screen.getByText('Súper y Almacén')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Súper y Casa'));
+    fireEvent.click(screen.getByText('Súper y Almacén'));
 
     // Should display warning
     expect(screen.getByText(/¡Escribe un monto primero!/i)).toBeInTheDocument();
@@ -51,10 +51,10 @@ describe('CategoryGrid Component (2-Touch Rule & Anti-Parálisis)', () => {
     render(<CategoryGridWrapper initialAmount="2500" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Súper y Casa')).toBeInTheDocument();
+      expect(screen.getByText('Súper y Almacén')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Súper y Casa'));
+    fireEvent.click(screen.getByText('Súper y Almacén'));
 
     await waitFor(async () => {
       const txs = await db.transactions.toArray();
@@ -81,6 +81,16 @@ describe('CategoryGrid Component (2-Touch Rule & Anti-Parálisis)', () => {
       expect(txs).toHaveLength(1);
       expect(txs[0].amount).toBe(800);
       expect(txs[0].categoryId).toBe('cat-despues-veo');
+    });
+  });
+
+  it('renders "Salud y Bienestar" and "Personalizar" button in the grid', async () => {
+    render(<CategoryGridWrapper initialAmount="0" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Salud y Bienestar')).toBeInTheDocument();
+      expect(screen.getByText('Hogar y Fijos')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Personalizar categorías/i })).toBeInTheDocument();
     });
   });
 

@@ -267,5 +267,48 @@ describe('BudgetContext & Calculations', () => {
       expect(updated?.amount).toBe(4800);
     });
   });
+
+  it('customizes a category name/icon and adds/removes custom sub-tags (Smart Chips)', async () => {
+    const { result } = renderHook(() => useBudget(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.categories.length).toBeGreaterThan(0);
+    });
+
+    // Add a custom chip to Súper y Almacén
+    await act(async () => {
+      await result.current.addSubTagToCategory('cat-super', 'Dietética');
+    });
+
+    await waitFor(() => {
+      const superCat = result.current.categories.find((c) => c.id === 'cat-super');
+      expect(superCat?.subTags).toContain('Dietética');
+    });
+
+    // Remove the custom chip
+    await act(async () => {
+      await result.current.removeSubTagFromCategory('cat-super', 'Dietética');
+    });
+
+    await waitFor(() => {
+      const superCat = result.current.categories.find((c) => c.id === 'cat-super');
+      expect(superCat?.subTags).not.toContain('Dietética');
+    });
+
+    // Customize cat-hija to Mascotas for a general audience user
+    await act(async () => {
+      await result.current.updateCategory('cat-hija', {
+        name: 'Mascotas',
+        icon: 'PawPrint',
+      });
+    });
+
+    await waitFor(() => {
+      const updatedCat = result.current.categories.find((c) => c.id === 'cat-hija');
+      expect(updatedCat?.name).toBe('Mascotas');
+      expect(updatedCat?.icon).toBe('PawPrint');
+    });
+  });
 });
+
 
